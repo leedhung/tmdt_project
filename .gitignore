@@ -1,0 +1,64 @@
+# ==========================================
+# E-TUTOR PLATFORM - GITIGNORE CONFIGURATION
+# ==========================================
+
+# System & OS Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.iml
+
+# Temporary & Local Test Files
+temp/
+temp_artifact/
+temp_artifact_2/
+plan.json
+refined.json
+.testsprite/runs/
+.testsprite/results/
+
+# Environment Variables & Credentials (CRITICAL SECURITY)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ==========================================
+# Java Backend (Spring Boot) - e-tutor-backend
+# ==========================================
+e-tutor-backend/target/
+e-tutor-backend/bin/
+e-tutor-backend/build/
+e-tutor-backend/.settings/
+e-tutor-backend/.classpath
+e-tutor-backend/.project
+e-tutor-backend/*.iml
+e-tutor-backend/*.log
+e-tutor-backend/help.md
+
+# ==========================================
+# React Frontend (Vite) - e-tutor-frontend
+# ==========================================
+e-tutor-frontend/node_modules/
+e-tutor-frontend/dist/
+e-tutor-frontend/build/
+e-tutor-frontend/npm-debug.log*
+e-tutor-frontend/yarn-debug.log*
+e-tutor-frontend/yarn-error.log*
+e-tutor-frontend/pnpm-debug.log*
+e-tutor-frontend/.eslintcache
+
+# Docker Local Database Data
+mysql_data/

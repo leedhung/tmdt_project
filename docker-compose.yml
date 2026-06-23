@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: etutor-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: etutor_db
+      MYSQL_USER: etutor_user
+      MYSQL_PASSWORD: etutor_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: ./e-tutor-backend
+      dockerfile: Dockerfile
+    container_name: etutor-backend
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=mysql
+      - ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080,https://*.lhr.life,https://*.loca.lt
+      - CLOUD_NAME=${CLOUD_NAME}
+      - CLOUD_API_KEY=${CLOUD_API_KEY}
+      - CLOUD_API_SECRET=${CLOUD_API_SECRET}
+    depends_on:
+      - mysql
+
+  frontend:
+    build:
+      context: ./e-tutor-frontend
+      dockerfile: Dockerfile
+    container_name: etutor-frontend
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+      - backend
+
+volumes:
+  mysql_data:
