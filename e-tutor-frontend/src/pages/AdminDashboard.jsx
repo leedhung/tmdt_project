@@ -292,6 +292,38 @@ export default function AdminDashboard() {
     }
   };
 
+  // ADMIN XỬ LÝ KHIẾU NẠI (PHÁN XỬ)
+  const handleResolveTicket = async (ticketId, lessonId, decision) => {
+    if (!lessonId) {
+      // Dành cho các mock ticket không phải là khiếu nại lớp học
+      setSuccess('Đã chuyển yêu cầu đến bộ phận CSKH xử lý!');
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'RESOLVED' } : t));
+      return;
+    }
+
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+
+      await api.post(`/class/lessons/${lessonId}/resolve-dispute?decision=${decision}`);
+      
+      const decisionText = decision === 'REFUND' ? 'hoàn tiền lại cho Học viên' : 'giải ngân cho Gia sư';
+      setSuccess(`Đã xử lý khiếu nại thành công: Quyết định ${decisionText}!`);
+      
+      // Update UI ticket status to RESOLVED
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'RESOLVED' } : t));
+      
+      // Refresh dữ liệu ví và thống kê
+      fetchData();
+    } catch (e) {
+      console.error(e);
+      setError(e.response?.data?.error || 'Xử lý khiếu nại thất bại!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleViewTutorProfile = async (userId) => {
     try {
       setError('');

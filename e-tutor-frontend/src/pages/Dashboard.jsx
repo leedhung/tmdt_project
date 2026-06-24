@@ -1612,16 +1612,18 @@ export default function Dashboard() {
                                   </button>
                                 )}
 
-                                {/* Nghiệm thu / Khiếu nại: Chỉ Học viên bấm khi trạng thái là PENDING_CONFIRM */}
-                                {les.status === 'PENDING_CONFIRM' && user.role === 'STUDENT' && (
+                                {/* Nghiệm thu / Khiếu nại */}
+                                {(les.status === 'PENDING_CONFIRM' || les.status === 'ONGOING') && user.role === 'STUDENT' && (
                                   <>
-                                    <button
-                                      onClick={() => handleConfirmLesson(les.id)}
-                                      className="btn btn-secondary btn-sm"
-                                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderColor: 'var(--success)', color: 'var(--success)' }}
-                                    >
-                                      Nghiệm thu (Giải ngân)
-                                    </button>
+                                    {les.status === 'PENDING_CONFIRM' && (
+                                      <button
+                                        onClick={() => handleConfirmLesson(les.id)}
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderColor: 'var(--success)', color: 'var(--success)' }}
+                                      >
+                                        Nghiệm thu (Giải ngân)
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => handleDisputeLesson(les.id)}
                                       className="btn btn-secondary btn-sm"
