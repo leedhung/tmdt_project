@@ -24,6 +24,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final EmailService emailService;
+    private final TokenBlacklistRepository tokenBlacklistRepository;
 
     // Bộ nhớ tạm thời lưu mã OTP khôi phục mật khẩu (Email -> OtpData)
     private final Map<String, OtpData> otpCache = new ConcurrentHashMap<>();
@@ -47,7 +48,8 @@ public class AuthService {
                        WalletRepository walletRepository,
                        PasswordEncoder passwordEncoder,
                        JwtTokenProvider tokenProvider,
-                       EmailService emailService) {
+                       EmailService emailService,
+                       TokenBlacklistRepository tokenBlacklistRepository) {
         this.userRepository = userRepository;
         this.tutorProfileRepository = tutorProfileRepository;
         this.studentProfileRepository = studentProfileRepository;
@@ -55,6 +57,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.emailService = emailService;
+        this.tokenBlacklistRepository = tokenBlacklistRepository;
     }
 
     private void validateRegisterRequest(RegisterRequest request) {
@@ -496,5 +499,35 @@ public class AuthService {
             }
         }
         return activeTutors;
+    }
+
+    // Đăng xuất: Đưa token vào blacklist
+    @Transactional
+    public void logout(String token) {
+        if (token != null && tokenProvider.validateToken(token)) {
+            java.util.Date expirationDate = tokenProvider.getExpirationDateFromToken(token);
+            TokenBlacklist blacklist = TokenBlacklist.builder()
+                    .token(token)
+                    .expiresAt(expirationDate)
+                    .build();
+            tokenBlacklistRepository.save(blacklist);
+        } else {
+            throw new RuntimeException("Token không hợp lệ hoặc đã hết hạn!");
+        }
+    }
+
+    // Cập nhật quyền (Role) cho User (Chỉ dành cho Admin)
+    @Transactional
+    public void updateUserRole(Long userId, String newRoleStr) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại!"));
+
+        try {
+            Role newRole = Role.valueOf(newRoleStr.toUpperCase());
+            user.setRole(newRole);
+            userRepository.save(user);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Vai trò không hợp lệ! Vui lòng chọn ADMIN, TUTOR hoặc STUDENT.");
+        }
     }
 }

@@ -93,6 +93,17 @@ public class JwtTokenProvider {
         return (String) claims.get("role");
     }
 
+    // Trích xuất ngày hết hạn từ Token
+    public Date getExpirationDateFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+
+        return claims.getExpiration();
+    }
+
     // Xác thực tính hợp lệ của Token
     public boolean validateToken(String token) {
         try {

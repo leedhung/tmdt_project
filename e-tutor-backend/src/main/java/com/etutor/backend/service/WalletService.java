@@ -154,9 +154,21 @@ public class WalletService {
                 .description(String.format("Nhận tiền học phí từ Học viên (Mã ví: %d)", studentWallet.getId()))
                 .build();
         transactionRepository.save(tutorTx);
+
+        // Ghi log doanh thu hoa hồng của hệ thống (lưu chung với ví của Tutor hoặc Admin, ở đây dùng tạm ví của Tutor để track)
+        if (commission.compareTo(BigDecimal.ZERO) > 0) {
+            Transaction commissionTx = Transaction.builder()
+                    .walletId(tutorWallet.getId())
+                    .amount(commission)
+                    .type(TransactionType.COMMISSION)
+                    .status(TransactionStatus.SUCCESS)
+                    .description("Phí hoa hồng nền tảng")
+                    .build();
+            transactionRepository.save(commissionTx);
+        }
     }
 
-    // Hàm nghiệp vụ Hoàn tiền (Refund) khi xảy ra tranh chấp có lợi cho học viên
+    // Hàm nghiệp vụ Hoàn tiền (Refund) khi xảy ra tranh chấp có lợi cho học viên hoặc hủy lớp
     @Transactional
     public void refund(Long studentId, BigDecimal amount) {
         Wallet wallet = getWalletByUserId(studentId);
@@ -170,14 +182,36 @@ public class WalletService {
         wallet.setBalance(wallet.getBalance().add(amount));
         walletRepository.save(wallet);
 
-        // Ghi log hoàn tiền UNLOCK
+        // Ghi log hoàn tiền REFUND
         Transaction transaction = Transaction.builder()
                 .walletId(wallet.getId())
                 .amount(amount)
-                .type(TransactionType.UNLOCK)
+                .type(TransactionType.REFUND)
                 .status(TransactionStatus.SUCCESS)
                 .description("Hoàn tiền học phí đã đóng băng về ví khả dụng")
                 .build();
         transactionRepository.save(transaction);
+    }
+
+    // Lấy thống kê doanh thu cho Gia sư (tính bằng tổng DEPOSIT trừ đi khoản tự nạp nếu có, hoặc chỉ đếm DEPOSIT nhận từ học viên)
+    // Để đơn giản, ở đây ta lấy tổng DEPOSIT vào ví.
+    @Transactional(readOnly = true)
+    public BigDecimal getTutorRevenue(Long tutorId) {
+        Wallet wallet = getWalletByUserId(tutorId);
+        return transactionRepository.sumAmountByWalletIdAndType(wallet.getId(), TransactionType.DEPOSIT);
+    }
+
+    // Lấy thống kê dòng tiền tổng cho Admin
+    @Transactional(readOnly = true)
+    public java.util.Map<String, BigDecimal> getAdminCashflow() {
+        BigDecimal totalDeposits = transactionRepository.sumAmountByType(TransactionType.DEPOSIT);
+        BigDecimal totalWithdraws = transactionRepository.sumAmountByType(TransactionType.WITHDRAW);
+        BigDecimal totalCommissions = transactionRepository.sumAmountByType(TransactionType.COMMISSION);
+
+        java.util.Map<String, BigDecimal> stats = new java.util.HashMap<>();
+        stats.put("totalDeposits", totalDeposits);
+        stats.put("totalWithdraws", totalWithdraws);
+        stats.put("totalCommissions", totalCommissions);
+        return stats;
     }
 }

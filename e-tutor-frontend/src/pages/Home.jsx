@@ -74,7 +74,12 @@ export default function Home() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {
+      console.error('Lỗi khi đăng xuất API', e);
+    }
     localStorage.clear();
     setIsLoggedIn(false);
     setUser(null);

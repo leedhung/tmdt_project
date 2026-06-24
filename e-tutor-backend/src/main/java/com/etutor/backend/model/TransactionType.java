@@ -4,5 +4,7 @@ public enum TransactionType {
     DEPOSIT,
     WITHDRAW,
     LOCK,
-    UNLOCK
+    UNLOCK,
+    REFUND,
+    COMMISSION
 }

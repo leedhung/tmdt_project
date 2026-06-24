@@ -17,6 +17,7 @@ export default function AdminDashboard() {
   const [lessons, setLessons] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activePanel, setActivePanel] = useState('overview');
+  const [cashflow, setCashflow] = useState({ totalDeposits: 0, totalWithdraws: 0, totalCommissions: 0 });
 
   // Admin Specific States
   const [allUsers, setAllUsers] = useState([]);
@@ -128,6 +129,14 @@ export default function AdminDashboard() {
         console.error("Không thể tải danh sách khiếu nại thực tế từ CSDL", e);
       }
 
+      // 6. Tải thống kê dòng tiền
+      try {
+        const cashflowRes = await api.get('/wallet/admin/cashflow');
+        setCashflow(cashflowRes.data);
+      } catch (e) {
+        console.error("Không thể tải thống kê dòng tiền", e);
+      }
+
     } catch (err) {
       console.error(err);
       setError('Lỗi khi đồng bộ dữ liệu Admin với máy chủ!');
@@ -136,7 +145,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {
+      console.error('Lỗi đăng xuất API', e);
+    }
     localStorage.clear();
     navigate('/login');
   };
@@ -200,6 +214,19 @@ export default function AdminDashboard() {
       setError(e.response?.data?.error || 'Lỗi khi phê duyệt tài khoản!');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ADMIN ĐỔI QUYỀN
+  const handleRoleChange = async (userId, newRole) => {
+    try {
+      if (window.confirm(`Bạn có chắc chắn muốn cấp quyền ${newRole} cho người dùng này?`)) {
+        await api.post(`/auth/admin/users/${userId}/role`, { role: newRole });
+        setSuccess('Cập nhật quyền thành công!');
+        fetchData();
+      }
+    } catch (e) {
+      setError(e.response?.data?.error || 'Lỗi khi cập nhật quyền');
     }
   };
 
@@ -532,15 +559,21 @@ export default function AdminDashboard() {
                   <div className="card-feature" style={{ marginBottom: 0, textAlign: 'left' }}>
                     <h3 className="heading-3" style={{ fontSize: '1.15rem', color: 'var(--accent-pink)' }}>Quỹ Tiền Hệ Thống</h3>
                     <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>DOANH THU HOA HỒNG (30%):</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>TỔNG DOANH THU HOA HỒNG THỰC TẾ:</span>
                       <strong style={{ fontSize: '1.4rem', color: 'var(--accent-cyan)', display: 'block' }}>
-                        {(activeClasses.reduce((sum, c) => sum + (c.hourlyRate * c.totalLessons * 0.3), 0)).toLocaleString('vi-VN')} đ
+                        {(cashflow.totalCommissions || 0).toLocaleString('vi-VN')} đ
+                      </strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>TỔNG TIỀN NẠP VÀO HỆ THỐNG:</span>
+                      <strong style={{ fontSize: '1.4rem', color: 'var(--accent-pink)', display: 'block' }}>
+                        {(cashflow.totalDeposits || 0).toLocaleString('vi-VN')} đ
                       </strong>
                     </div>
                     <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>TỔNG TIỀN ĐANG ĐÓNG BĂNG:</span>
-                      <strong style={{ fontSize: '1.4rem', color: 'var(--accent-pink)', display: 'block' }}>
-                        {(activeClasses.reduce((sum, c) => sum + (c.hourlyRate * c.totalLessons), 0)).toLocaleString('vi-VN')} đ
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>TỔNG TIỀN RÚT KHỎI HỆ THỐNG:</span>
+                      <strong style={{ fontSize: '1.4rem', color: 'var(--accent-purple)', display: 'block' }}>
+                        {(cashflow.totalWithdraws || 0).toLocaleString('vi-VN')} đ
                       </strong>
                     </div>
                   </div>
@@ -762,12 +795,16 @@ export default function AdminDashboard() {
                             <td style={{ padding: '0.75rem' }}>{u.email}</td>
                             <td style={{ padding: '0.75rem' }}>{u.phone || 'Chưa cập nhật'}</td>
                             <td style={{ padding: '0.75rem' }}>
-                              <span className={`badge ${
-                                u.role === 'ADMIN' ? 'badge-danger' : 
-                                u.role === 'TUTOR' ? 'badge-cyan' : 'badge-success'
-                              }`} style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>
-                                {u.role}
-                              </span>
+                              <select
+                                className="form-input"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', width: 'auto', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '4px' }}
+                                value={u.role}
+                                onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                              >
+                                <option value="STUDENT">STUDENT</option>
+                                <option value="TUTOR">TUTOR</option>
+                                <option value="ADMIN">ADMIN</option>
+                              </select>
                             </td>
                             <td style={{ padding: '0.75rem' }}>
                               <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>

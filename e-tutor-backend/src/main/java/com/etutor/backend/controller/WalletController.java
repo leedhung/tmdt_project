@@ -73,4 +73,34 @@ public class WalletController {
             return ResponseEntity.badRequest().body(error);
         }
     }
+
+    // Lấy doanh thu của Gia sư
+    @GetMapping("/tutor/revenue")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('TUTOR')")
+    public ResponseEntity<?> getTutorRevenue(@AuthenticationPrincipal Long userId) {
+        try {
+            BigDecimal revenue = walletService.getTutorRevenue(userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("revenue", revenue);
+            return ResponseEntity.ok(response);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    // Lấy thống kê dòng tiền tổng cho Admin
+    @GetMapping("/admin/cashflow")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getAdminCashflow() {
+        try {
+            Map<String, BigDecimal> cashflow = walletService.getAdminCashflow();
+            return ResponseEntity.ok(cashflow);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
 }

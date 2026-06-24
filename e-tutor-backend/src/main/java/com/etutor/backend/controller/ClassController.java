@@ -619,5 +619,40 @@ public class ClassController {
             return ResponseEntity.badRequest().body(error);
         }
     }
-}
 
+    // G. Gia sư hủy lớp học
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('TUTOR')")
+    public ResponseEntity<?> cancelClass(@AuthenticationPrincipal Long userId, @PathVariable Long id) {
+        try {
+            ClassEntity classEntity = classRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy lớp học!"));
+
+            if (!userId.equals(classEntity.getTutorId())) {
+                throw new RuntimeException("Bạn không phải gia sư của lớp học này nên không có quyền hủy!");
+            }
+
+            if ("COMPLETED".equals(classEntity.getStatus()) || "CANCELLED".equals(classEntity.getStatus())) {
+                throw new RuntimeException("Không thể hủy lớp học đã hoàn thành hoặc đã bị hủy!");
+            }
+
+            // Nếu học viên đã thanh toán (đang chờ học hoặc đang học dở dang), tiến hành hoàn tiền toàn bộ
+            if ("WAITING_PAYMENT".equals(classEntity.getStatus()) || "ACTIVATED".equals(classEntity.getStatus())) {
+                if (classEntity.getStudentId() != null) {
+                    BigDecimal totalCost = classEntity.getHourlyRate().multiply(BigDecimal.valueOf(classEntity.getTotalLessons()));
+                    walletService.refund(classEntity.getStudentId(), totalCost);
+                }
+            }
+
+            // Chuyển trạng thái lớp học sang CANCELLED
+            classEntity.setStatus("CANCELLED");
+            ClassEntity updatedClass = classRepository.save(classEntity);
+
+            return ResponseEntity.ok(updatedClass);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+}

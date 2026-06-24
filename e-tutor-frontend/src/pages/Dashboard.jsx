@@ -24,6 +24,7 @@ export default function Dashboard() {
   // States for Wallet actions
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [revenue, setRevenue] = useState(0);
 
   // States for Class creation
   const [newClass, setNewClass] = useState({
@@ -169,6 +170,13 @@ export default function Dashboard() {
           }
         }
         setClassApplications(appsMap);
+      } else if (activeUser && activeUser.role === 'TUTOR') {
+        try {
+          const revRes = await api.get('/wallet/tutor/revenue');
+          setRevenue(revRes.data.revenue || 0);
+        } catch (e) {
+          console.error('Không thể lấy doanh thu gia sư', e);
+        }
       }
 
     } catch (err) {
@@ -221,7 +229,12 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {
+      console.error('Lỗi khi đăng xuất API', e);
+    }
     localStorage.clear();
     navigate('/login');
   };
@@ -960,10 +973,10 @@ export default function Dashboard() {
                   <div className="heading-3" style={{ fontSize: '1.8rem', margin: '0.25rem 0' }}>
                     {user.role === 'STUDENT'
                       ? (activeClasses.reduce((sum, c) => sum + (c.hourlyRate * c.totalLessons), 0)).toLocaleString('vi-VN')
-                      : (activeClasses.reduce((sum, c) => sum + (c.hourlyRate * c.totalLessons * 0.7), 0)).toLocaleString('vi-VN')
+                      : (revenue).toLocaleString('vi-VN')
                     } đ
                   </div>
-                  <div className="body-sm text-slate">{user.role === 'STUDENT' ? 'Đã chi trả' : 'Thu nhập dự tính'}</div>
+                  <div className="body-sm text-slate">{user.role === 'STUDENT' ? 'Đã chi trả' : 'Doanh thu thực tế'}</div>
                 </div>
               </div>
 
@@ -1483,18 +1496,39 @@ export default function Dashboard() {
                           )}
 
                           {cls.status === 'ACTIVATED' && (
-                            <button
-                              onClick={async () => {
-                                setSelectedClass(cls);
-                                const res = await api.get(`/class/${cls.id}/lessons`);
-                                setLessons(res.data);
-                                setSuccess(`Đã tải danh sách các buổi học của lớp "${cls.title}"!`);
-                              }}
-                              className="btn btn-secondary"
-                              style={{ width: '100%', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
-                            >
-                              <Calendar size={14} /> Xem danh sách lịch buổi học đã rải trong DB
-                            </button>
+                            <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                              <button
+                                onClick={async () => {
+                                  setSelectedClass(cls);
+                                  const res = await api.get(`/class/${cls.id}/lessons`);
+                                  setLessons(res.data);
+                                  setSuccess(`Đã tải danh sách các buổi học của lớp "${cls.title}"!`);
+                                }}
+                                className="btn btn-secondary"
+                                style={{ flex: 1, padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                              >
+                                <Calendar size={14} /> Xem danh sách lịch buổi học đã rải trong DB
+                              </button>
+                              {user.role === 'TUTOR' && (
+                                <button
+                                  onClick={async () => {
+                                    if (window.confirm('Bạn có chắc chắn muốn hủy lớp này không? Hệ thống sẽ tự động hoàn tiền cho học viên nếu đã thanh toán.')) {
+                                      try {
+                                        await api.post(`/class/${cls.id}/cancel`);
+                                        setSuccess('Đã hủy lớp thành công!');
+                                        fetchData();
+                                      } catch (err) {
+                                        setError('Lỗi khi hủy lớp: ' + (err.response?.data?.error || err.message));
+                                      }
+                                    }
+                                  }}
+                                  className="btn"
+                                  style={{ background: 'var(--accent-pink)', color: '#fff', border: 'none', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                                >
+                                  Hủy lớp
+                                </button>
+                              )}
+                            </div>
                           )}
 
 

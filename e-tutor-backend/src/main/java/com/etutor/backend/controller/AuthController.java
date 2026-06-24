@@ -281,4 +281,44 @@ public class AuthController {
             return ResponseEntity.badRequest().body(errorResponse);
         }
     }
+
+    // Đăng xuất: Đưa token vào blacklist
+    @PostMapping("/logout")
+    public ResponseEntity<?> logoutUser(jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            String bearerToken = request.getHeader("Authorization");
+            if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+                String token = bearerToken.substring(7);
+                authService.logout(token);
+                Map<String, String> response = new HashMap<>();
+                response.put("message", "Đăng xuất thành công!");
+                return ResponseEntity.ok(response);
+            }
+            throw new RuntimeException("Không tìm thấy Token để đăng xuất!");
+        } catch (Exception ex) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    // Thay đổi vai trò (Role) của người dùng (Chỉ dành cho Admin)
+    @PostMapping("/admin/users/{userId}/role")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> updateUserRole(@PathVariable Long userId, @RequestBody Map<String, String> body) {
+        try {
+            String newRole = body.get("role");
+            if (newRole == null || newRole.trim().isEmpty()) {
+                throw new RuntimeException("Vai trò mới không được để trống!");
+            }
+            authService.updateUserRole(userId, newRole);
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "Cập nhật vai trò người dùng thành công!");
+            return ResponseEntity.ok(response);
+        } catch (Exception ex) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
 }

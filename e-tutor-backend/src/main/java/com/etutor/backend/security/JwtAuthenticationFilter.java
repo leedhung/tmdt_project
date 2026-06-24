@@ -12,15 +12,20 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.etutor.backend.repository.TokenBlacklistRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.io.IOException;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
+    private final TokenBlacklistRepository tokenBlacklistRepository;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, TokenBlacklistRepository tokenBlacklistRepository) {
         this.tokenProvider = tokenProvider;
+        this.tokenBlacklistRepository = tokenBlacklistRepository;
     }
 
     @Override
@@ -30,6 +35,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = getJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+                
+                // Kiểm tra token có bị blacklist không
+                if (tokenBlacklistRepository.findByToken(jwt).isPresent()) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
+                }
+
                 Long userId = tokenProvider.getUserIdFromToken(jwt);
                 String email = tokenProvider.getEmailFromToken(jwt);
                 String role = tokenProvider.getRoleFromToken(jwt);
