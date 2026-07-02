@@ -6,12 +6,17 @@ import org.springframework.stereotype.Repository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import com.etutor.backend.model.TransactionType;
+import com.etutor.backend.model.TransactionStatus;
 import java.math.BigDecimal;
 import java.util.List;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
     List<Transaction> findByWalletIdOrderByCreatedAtDesc(Long walletId);
+
+    List<Transaction> findByTypeAndStatusOrderByCreatedAtDesc(TransactionType type, TransactionStatus status);
+
+    List<Transaction> findAllByOrderByCreatedAtDesc();
 
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.type = :type")
     BigDecimal sumAmountByType(@Param("type") TransactionType type);

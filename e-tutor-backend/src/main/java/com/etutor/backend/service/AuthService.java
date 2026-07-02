@@ -289,7 +289,8 @@ public class AuthService {
                 .phone(user.getPhone())
                 .dob(user.getDob())
                 .role(user.getRole().name())
-                .isVerified(user.getIsVerified());
+                .isVerified(user.getIsVerified())
+                .vipExpiry(user.getVipExpiry());
 
         if (user.getRole() == Role.STUDENT) {
             studentProfileRepository.findById(userId).ifPresent(p -> {
@@ -498,6 +499,14 @@ public class AuthService {
                 }
             }
         }
+        // Sắp xếp ưu tiên Gia sư VIP lên đầu danh sách
+        activeTutors.sort((t1, t2) -> {
+            boolean isVip1 = t1.getVipExpiry() != null && t1.getVipExpiry().isAfter(java.time.LocalDateTime.now());
+            boolean isVip2 = t2.getVipExpiry() != null && t2.getVipExpiry().isAfter(java.time.LocalDateTime.now());
+            if (isVip1 && !isVip2) return -1;
+            if (!isVip1 && isVip2) return 1;
+            return 0;
+        });
         return activeTutors;
     }
 

@@ -135,7 +135,10 @@ public class ClassController {
     // 4. Học viên thanh toán học phí chốt lớp học (Kích hoạt luồng Escrow đóng băng tiền & rải lịch)
     @PostMapping("/{id}/pay")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> payForClass(@AuthenticationPrincipal Long studentId, @PathVariable Long id) {
+    public ResponseEntity<?> payForClass(
+            @AuthenticationPrincipal Long studentId, 
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "WALLET") String method) {
         try {
             ClassEntity classEntity = classRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy lớp học!"));
@@ -156,8 +159,12 @@ public class ClassController {
             // Ở đây để đơn giản: totalCost = hourlyRate * totalLessons (coi học phí hourlyRate là học phí theo buổi)
             BigDecimal totalCost = classEntity.getHourlyRate().multiply(BigDecimal.valueOf(classEntity.getTotalLessons()));
 
-            // A. Tiến hành ĐÓNG BĂNG TIỀN (Escrow) trong ví học viên
-            walletService.freezeBalance(studentId, totalCost);
+            classEntity.setPaymentMethod(method.toUpperCase());
+
+            // A. Tiến hành ĐÓNG BĂNG TIỀN (Escrow) trong ví học viên nếu không phải tiền mặt
+            if (!"CASH".equalsIgnoreCase(method)) {
+                walletService.freezeBalance(studentId, totalCost);
+            }
 
             // B. Cập nhật trạng thái lớp thành ACTIVATED
             classEntity.setStatus("ACTIVATED");
@@ -214,6 +221,21 @@ public class ClassController {
             List<ClassEntity> all = classRepository.findAll();
             List<ClassEntity> publicClasses = all.stream()
                     .filter(c -> "FINDING_TUTOR".equals(c.getStatus()) || "FINDING_STUDENT".equals(c.getStatus()))
+                    .peek(c -> {
+                        if (c.getTutorId() != null) {
+                            User t = userRepository.findById(c.getTutorId()).orElse(null);
+                            c.setIsTutorVip(t != null && t.getVipExpiry() != null && t.getVipExpiry().isAfter(java.time.LocalDateTime.now()));
+                        } else {
+                            c.setIsTutorVip(false);
+                        }
+                    })
+                    .sorted((c1, c2) -> {
+                        boolean isVip1 = c1.getIsTutorVip() != null && c1.getIsTutorVip();
+                        boolean isVip2 = c2.getIsTutorVip() != null && c2.getIsTutorVip();
+                        if (isVip1 && !isVip2) return -1;
+                        if (!isVip1 && isVip2) return 1;
+                        return 0;
+                    })
                     .toList();
             return ResponseEntity.ok(publicClasses);
         } catch (Exception ex) {
@@ -467,14 +489,16 @@ public class ClassController {
                 throw new RuntimeException("Trạng thái buổi học phải là Chờ xác nhận (PENDING_CONFIRM)!");
             }
 
-            // 1. Thực hiện giải ngân học phí 1 buổi (tương đương hourlyRate)
+            // 1. Thực hiện giải ngân học phí 1 buổi (tương đương hourlyRate) nếu không phải tiền mặt
             // Với commission rate 15% (0.15)
-            walletService.unfreezeAndDistribute(
-                    classEntity.getStudentId(),
-                    classEntity.getTutorId(),
-                    classEntity.getHourlyRate(),
-                    0.15
-            );
+            if (!"CASH".equalsIgnoreCase(classEntity.getPaymentMethod())) {
+                walletService.unfreezeAndDistribute(
+                        classEntity.getStudentId(),
+                        classEntity.getTutorId(),
+                        classEntity.getHourlyRate(),
+                        0.15
+                );
+            }
 
             // 2. Cập nhật trạng thái buổi học
             lesson.setStatus("COMPLETED");
@@ -620,6 +644,90 @@ public class ClassController {
         }
     }
 
+    // H. Học viên hủy lớp học (chỉ được hủy khi lớp còn FINDING_TUTOR, WAITING_PAYMENT hoặc ACTIVATED)
+    @PostMapping("/{id}/student-cancel")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<?> studentCancelClass(@AuthenticationPrincipal Long userId, @PathVariable Long id) {
+        try {
+            ClassEntity classEntity = classRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy lớp học!"));
+
+            if (!userId.equals(classEntity.getStudentId())) {
+                throw new RuntimeException("Bạn không phải học viên của lớp học này nên không có quyền hủy!");
+            }
+
+            if ("COMPLETED".equals(classEntity.getStatus()) || "CANCELLED".equals(classEntity.getStatus())) {
+                throw new RuntimeException("Không thể hủy lớp học đã hoàn thành hoặc đã bị hủy!");
+            }
+
+            // Nếu học viên đã thanh toán Escrow (lớp ACTIVATED), hoàn lại tiền đang đóng băng
+            if ("ACTIVATED".equals(classEntity.getStatus())) {
+                if (!"CASH".equalsIgnoreCase(classEntity.getPaymentMethod())) {
+                    // Tính tiền đóng băng còn lại chưa giải ngân
+                    List<Lesson> lessons = lessonRepository.findByClassIdOrderByLessonNumberAsc(classEntity.getId());
+                    long completedCount = lessons.stream().filter(l -> "COMPLETED".equals(l.getStatus())).count();
+                    long remainingLessons = classEntity.getTotalLessons() - completedCount;
+                    if (remainingLessons > 0) {
+                        BigDecimal refundAmount = classEntity.getHourlyRate().multiply(BigDecimal.valueOf(remainingLessons));
+                        walletService.refund(classEntity.getStudentId(), refundAmount);
+                    }
+                }
+            }
+
+            // Chuyển trạng thái lớp học sang CANCELLED
+            classEntity.setStatus("CANCELLED");
+            ClassEntity updatedClass = classRepository.save(classEntity);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("message", "Lớp học đã được hủy thành công!");
+            result.put("class", updatedClass);
+            return ResponseEntity.ok(result);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    // I. Học viên yêu cầu hoàn tiền cho một buổi học đang tranh chấp
+    @PostMapping("/lessons/{lessonId}/refund-request")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<?> requestRefund(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long lessonId,
+            @RequestBody(required = false) Map<String, String> body) {
+        try {
+            Lesson lesson = lessonRepository.findById(lessonId)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy buổi học!"));
+
+            ClassEntity classEntity = classRepository.findById(lesson.getClassId())
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy lớp học tương ứng!"));
+
+            if (!userId.equals(classEntity.getStudentId())) {
+                throw new RuntimeException("Chỉ Học viên của lớp mới được quyền gửi yêu cầu hoàn tiền!");
+            }
+
+            if (!"PENDING_CONFIRM".equals(lesson.getStatus()) && !"COMPLETED".equals(lesson.getStatus())) {
+                throw new RuntimeException("Chỉ có thể yêu cầu hoàn tiền cho buổi học đang ở trạng thái Chờ xác nhận hoặc Đã hoàn thành!");
+            }
+
+            // Chuyển trạng thái buổi học sang DISPUTED
+            lesson.setStatus("DISPUTED");
+            String reason = (body != null && body.containsKey("reason")) ? body.get("reason") : "Học viên yêu cầu hoàn tiền";
+            lesson.setDisputeReason(reason);
+            lessonRepository.save(lesson);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("message", "Đã gửi yêu cầu hoàn tiền thành công! Admin sẽ xem xét và xử lý trong vòng 24h.");
+            result.put("lesson", lesson);
+            return ResponseEntity.ok(result);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
     // G. Gia sư hủy lớp học
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasRole('TUTOR')")
@@ -638,7 +746,7 @@ public class ClassController {
 
             // Nếu học viên đã thanh toán (đang chờ học hoặc đang học dở dang), tiến hành hoàn tiền toàn bộ
             if ("WAITING_PAYMENT".equals(classEntity.getStatus()) || "ACTIVATED".equals(classEntity.getStatus())) {
-                if (classEntity.getStudentId() != null) {
+                if (classEntity.getStudentId() != null && !"CASH".equalsIgnoreCase(classEntity.getPaymentMethod())) {
                     BigDecimal totalCost = classEntity.getHourlyRate().multiply(BigDecimal.valueOf(classEntity.getTotalLessons()));
                     walletService.refund(classEntity.getStudentId(), totalCost);
                 }

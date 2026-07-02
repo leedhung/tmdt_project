@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import api from '../services/api';
+import { showAlert } from '../utils/notification';
 import { 
   Search, BookOpen, MapPin, Award, ChevronRight, Phone, Mail, 
   Star, Users, Briefcase, RefreshCw, SlidersHorizontal, ArrowUpDown, 
@@ -131,36 +132,36 @@ export default function ClassesMarketplace() {
         try {
           if (cls.isReal) {
             await api.post(`/class/${cls.id}/register`);
-            alert(`Đăng ký lớp "${cls.title}" thành công! Hệ thống đang tự động chuyển hướng bạn tới trang thanh toán học phí bảo chứng Escrow để chính thức kích hoạt lớp học.`);
+            showAlert('Đăng ký lớp thành công', `Đăng ký lớp "${cls.title}" thành công! Hệ thống đang tự động chuyển hướng bạn tới trang thanh toán học phí bảo chứng Escrow để chính thức kích hoạt lớp học.`, 'success');
           } else {
-            alert(`[Giả lập] Đăng ký lớp "${cls.title}" thành công! Đang tự động chuyển hướng bạn tới trang thanh toán bảo chứng.`);
+            showAlert('Đăng ký lớp thành công', `[Giả lập] Đăng ký lớp "${cls.title}" thành công! Đang tự động chuyển hướng bạn tới trang thanh toán bảo chứng.`, 'success');
           }
           navigate(`/checkout/${cls.id}`);
         } catch (err) {
-          alert(err.response?.data?.error || 'Đăng ký lớp học thất bại!');
+          showAlert('Lỗi đăng ký lớp', err.response?.data?.error || 'Đăng ký lớp học thất bại!', 'error');
         }
       } else {
-        alert('Bạn đang đăng nhập dưới vai trò Gia sư. Chỉ Học viên mới có thể đăng ký học khóa học!');
+        showAlert('Yêu cầu vai trò', 'Bạn đang đăng nhập dưới vai trò Gia sư. Chỉ Học viên mới có thể đăng ký học khóa học!', 'warning');
       }
     } else {
       // Mặc định hoặc FINDING_TUTOR
       if (user && user.role === 'TUTOR') {
         if (!user.isVerified) {
-          alert('Tài khoản gia sư của bạn chưa được duyệt chuyên môn! Vui lòng truy cập trang cá nhân cập nhật đầy đủ hồ sơ chuyên môn và chờ Ban quản trị phê duyệt trước khi ứng tuyển nhận lớp.');
+          showAlert('Chờ duyệt chuyên môn', 'Tài khoản gia sư của bạn chưa được duyệt chuyên môn! Vui lòng truy cập trang cá nhân cập nhật đầy đủ hồ sơ chuyên môn và chờ Ban quản trị phê duyệt trước khi ứng tuyển nhận lớp.', 'warning');
           return;
         }
         try {
           if (cls.isReal) {
             await api.post(`/class/${cls.id}/apply`);
-            alert(`Đã gửi đơn ứng tuyển vào lớp "${cls.title}" thành công! Vui lòng chờ Học viên phê duyệt.`);
+            showAlert('Ứng tuyển thành công', `Đã gửi đơn ứng tuyển vào lớp "${cls.title}" thành công! Vui lòng chờ Học viên phê duyệt.`, 'success');
           } else {
-            alert(`[Giả lập] Gửi đơn ứng tuyển lớp "${cls.title}" thành công!`);
+            showAlert('Ứng tuyển thành công', `[Giả lập] Gửi đơn ứng tuyển lớp "${cls.title}" thành công!`, 'success');
           }
         } catch (err) {
-          alert(err.response?.data?.error || 'Ứng tuyển thất bại!');
+          showAlert('Lỗi ứng tuyển', err.response?.data?.error || 'Ứng tuyển thất bại!', 'error');
         }
       } else {
-        alert('Bạn đang đăng nhập dưới vai trò Học viên. Chỉ Gia sư mới có thể ứng tuyển nhận lớp học yêu cầu!');
+        showAlert('Yêu cầu vai trò', 'Bạn đang đăng nhập dưới vai trò Học viên. Chỉ Gia sư mới có thể ứng tuyển nhận lớp học yêu cầu!', 'warning');
       }
     }
   };
@@ -384,13 +385,20 @@ export default function ClassesMarketplace() {
                       flexDirection: 'column', 
                       gap: '1rem', 
                       padding: '1.5rem',
-                      border: cls.isReal ? '1px solid rgba(141, 91, 76, 0.35)' : '1px solid var(--glass-border)',
+                      border: cls.isTutorVip ? '1.5px solid rgba(197, 137, 64, 0.65)' : cls.isReal ? '1px solid rgba(141, 91, 76, 0.35)' : '1px solid var(--glass-border)',
+                      background: cls.isTutorVip ? 'linear-gradient(135deg, var(--glass-bg) 0%, rgba(197, 137, 64, 0.05) 100%)' : 'var(--glass-bg)',
+                      boxShadow: cls.isTutorVip ? '0 8px 32px rgba(197, 137, 64, 0.08)' : 'none',
                       textAlign: 'left'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span className="badge badge-cyan" style={{ fontSize: '0.65rem', padding: '0.2rem 0.6rem' }}>{cls.grade}</span>
-                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                        {cls.isTutorVip && (
+                          <span className="badge" style={{ fontSize: '0.62rem', padding: '0.15rem 0.5rem', background: 'linear-gradient(135deg, #e5ba73 0%, #c58940 100%)', color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.15rem', boxShadow: '0 2px 8px rgba(197,137,64,0.3)' }}>
+                            ⭐ VIP
+                          </span>
+                        )}
                         {cls.status === 'FINDING_STUDENT' ? (
                           <span className="badge badge-warning" style={{ fontSize: '0.6rem', padding: '0.15rem 0.5rem' }}>Chiêu Sinh</span>
                         ) : (

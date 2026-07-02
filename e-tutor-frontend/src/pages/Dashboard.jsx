@@ -26,6 +26,15 @@ export default function Dashboard() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [revenue, setRevenue] = useState(0);
 
+  // States for Rating & Review System
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewClassId, setReviewClassId] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewedClasses, setReviewedClasses] = useState({});
+  const [tutorReviews, setTutorReviews] = useState([]);
+  const [tutorStats, setTutorStats] = useState({ averageRating: 0.0, totalReviews: 0 });
+
   // States for Class creation
   const [newClass, setNewClass] = useState({
     title: '',
@@ -170,12 +179,37 @@ export default function Dashboard() {
           }
         }
         setClassApplications(appsMap);
+
+        // Kiểm tra xem các lớp học đã hoàn thành đã được đánh giá chưa
+        const completedClasses = classesRes.data.filter(c => c.status === 'COMPLETED');
+        const reviewedMap = {};
+        for (const cls of completedClasses) {
+          try {
+            const checkRes = await api.get(`/reviews/class/${cls.id}/check`);
+            reviewedMap[cls.id] = checkRes.data; // Chứa { reviewed: boolean, rating, comment }
+          } catch (e) {
+            console.error(`Không thể kiểm tra đánh giá cho lớp #${cls.id}`, e);
+          }
+        }
+        setReviewedClasses(reviewedMap);
+
       } else if (activeUser && activeUser.role === 'TUTOR') {
         try {
           const revRes = await api.get('/wallet/tutor/revenue');
           setRevenue(revRes.data.revenue || 0);
         } catch (e) {
           console.error('Không thể lấy doanh thu gia sư', e);
+        }
+
+        // Tải thông tin đánh giá và phản hồi của Gia sư
+        try {
+          const reviewsRes = await api.get(`/reviews/tutor/${activeUser.id}`);
+          setTutorReviews(reviewsRes.data);
+          
+          const statsRes = await api.get(`/reviews/tutor/${activeUser.id}/average`);
+          setTutorStats(statsRes.data);
+        } catch (e) {
+          console.error('Không thể tải lịch sử đánh giá gia sư', e);
         }
       }
 
@@ -200,6 +234,37 @@ export default function Dashboard() {
       navigate(`/checkout/${classId}`);
     } catch (err) {
       setError(err.response?.data?.error || 'Chốt gia sư thất bại!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // HỌC VIÊN GỬI ĐÁNH GIÁ PHẢN HỒI GIA SƯ
+  const handlePostReview = async (e) => {
+    e.preventDefault();
+    if (!reviewRating || reviewRating < 1 || reviewRating > 5) {
+      setError('Điểm đánh giá phải từ 1 đến 5 sao!');
+      return;
+    }
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      await api.post('/reviews', {
+        classId: reviewClassId,
+        rating: reviewRating,
+        comment: reviewComment.trim()
+      });
+      setSuccess('Gửi đánh giá và phản hồi thù lao/chất lượng dạy học thành công!');
+      setShowReviewModal(false);
+      setReviewClassId(null);
+      setReviewRating(5);
+      setReviewComment('');
+      // Đồng bộ lại dữ liệu dashboard
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Gửi đánh giá phản hồi thất bại!');
     } finally {
       setLoading(false);
     }
@@ -320,6 +385,46 @@ export default function Dashboard() {
       fetchData();
     } catch (err) {
       setError(err.response?.data?.error || 'Rút tiền thất bại!');
+    }
+  };
+
+  // GIA SƯ MUA GÓI VIP
+  const handleBuyVip = async (days) => {
+    const packageName = days === 7 ? 'VIP Tuần (7 ngày)' : 'VIP Tháng (30 ngày)';
+    const price = days === 7 ? 99000 : 299000;
+    
+    if (wallet.balance < price) {
+      setError(`Số dư ví không đủ để thanh toán gói ${packageName}. Vui lòng nạp thêm tiền!`);
+      return;
+    }
+
+    if (!window.confirm(`Bạn có đồng ý thanh toán ${price.toLocaleString('vi-VN')}đ từ ví để kích hoạt gói ${packageName} không?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      
+      const res = await api.post('/wallet/tutor/buy-vip', { days });
+      setSuccess(`Kích hoạt thành công gói ${packageName}! Hồ sơ và bài giảng của bạn đã được ưu tiên hiển thị lên hàng đầu.`);
+      
+      // Đồng bộ thông tin user mới cập nhật có vipExpiry
+      const updatedUser = {
+        ...user,
+        vipExpiry: res.data.vipExpiry
+      };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      
+      // Làm mới dữ liệu ví và lịch sử giao dịch
+      fetchData(updatedUser);
+      fetchProfile();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Mua gói VIP thất bại!');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -456,7 +561,61 @@ export default function Dashboard() {
     }
   };
 
-  // States for certificate upload
+  // HỌC VIÊN HỦY LỚP HỌC
+  const handleStudentCancelClass = async (classId) => {
+    if (!window.confirm('Bạn có chắc muốn hủy lớp học này không? Hệ thống sẽ tự động hoàn lại học phí đã đóng băng (nếu có) về ví của bạn.')) {
+      return;
+    }
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      const res = await api.post(`/class/${classId}/student-cancel`);
+      setSuccess(res.data.message || 'Đã hủy lớp học thành công! Tiền học phí đã được hoàn lại vào ví của bạn.');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Hủy lớp học thất bại!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // HỌC VIÊN YÊU CẦU HOÀN TIỀN CHO MỘT BUỔI HỌC
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundLessonId, setRefundLessonId] = useState(null);
+  const [refundReason, setRefundReason] = useState('');
+
+  const handleOpenRefundModal = (lessonId) => {
+    setRefundLessonId(lessonId);
+    setRefundReason('');
+    setRefundModalOpen(true);
+  };
+
+  const handleSubmitRefund = async () => {
+    if (!refundReason.trim()) {
+      setError('Vui lòng nhập lý do yêu cầu hoàn tiền!');
+      return;
+    }
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      const res = await api.post(`/class/lessons/${refundLessonId}/refund-request`, { reason: refundReason });
+      setSuccess(res.data.message || 'Đã gửi yêu cầu hoàn tiền! Admin sẽ xem xét và xử lý trong vòng 24h.');
+      setRefundModalOpen(false);
+      if (selectedClass) {
+        const lessonsRes = await api.get(`/class/${selectedClass.id}/lessons`);
+        setLessons(lessonsRes.data);
+      }
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Gửi yêu cầu hoàn tiền thất bại!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   const [certFile, setCertFile] = useState(null);
   const [certName, setCertName] = useState('');
   const [uploadingCert, setUploadingCert] = useState(false);
@@ -812,6 +971,13 @@ export default function Dashboard() {
                 >
                   <WalletIcon size={18} /> Doanh thu
                 </a>
+                <a
+                  className={`sidebar-link ${activePanel === 'vip' ? 'active' : ''}`}
+                  onClick={() => { setActivePanel('vip'); setSidebarOpen(false); }}
+                  style={{ background: 'linear-gradient(135deg, rgba(197, 137, 64, 0.1) 0%, rgba(229, 186, 115, 0.05) 100%)', color: 'var(--accent-blue)', fontWeight: 'bold' }}
+                >
+                  <Star size={18} style={{ color: 'var(--accent-blue)' }} /> Nâng cấp VIP ⭐
+                </a>
               </>
             )}
 
@@ -886,6 +1052,52 @@ export default function Dashboard() {
                 <CheckCircle size={16} /> <strong>Thông báo:</strong> {success}
               </div>
             )}
+            {/* Banner thông báo buổi học hôm nay cho Học viên */}
+            {user.role === 'STUDENT' && (() => {
+              const today = new Date();
+              const todayLessons = lessons.filter(l => {
+                const d = new Date(l.startTime);
+                return d.getFullYear() === today.getFullYear()
+                  && d.getMonth() === today.getMonth()
+                  && d.getDate() === today.getDate()
+                  && l.status !== 'COMPLETED'
+                  && l.status !== 'DISPUTED';
+              });
+              if (todayLessons.length === 0) return null;
+              return (
+                <div style={{
+                  marginBottom: '1.5rem',
+                  background: 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(102,252,241,0.08) 100%)',
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  borderRadius: '14px',
+                  padding: '1.25rem 1.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ fontSize: '2rem' }}>📅</div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <strong style={{ color: '#60a5fa', fontSize: '1rem', display: 'block', marginBottom: '0.25rem' }}>
+                      Bạn có {todayLessons.length} buổi học hôm nay!
+                    </strong>
+                    {todayLessons.map((l, idx) => (
+                      <span key={l.id} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginRight: '1rem' }}>
+                        🕐 {l.classTitle || `Lớp #${l.classId}`}: {new Date(l.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(l.endTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setActivePanel('classes')}
+                    className="btn btn-primary"
+                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                  >
+                    Xem lịch học
+                  </button>
+                </div>
+              );
+            })()}
+
             {user.role === 'TUTOR' && (
               <div style={{ marginBottom: '1.5rem' }}>
                 {profileForm.status === 'NOT_SUBMITTED' && (
@@ -1488,7 +1700,17 @@ export default function Dashboard() {
                           )}
 
                           {cls.status === 'FINDING_TUTOR' && user.role === 'STUDENT' && (
-                            <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', padding: '0.5rem' }}>Lớp đã được duyệt, đang đăng tuyển tìm Gia sư...</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', padding: '0.5rem', flex: 1 }}>Lớp đã được duyệt, đang đăng tuyển tìm Gia sư...</span>
+                              <button
+                                onClick={() => handleStudentCancelClass(cls.id)}
+                                className="btn btn-sm"
+                                style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                                disabled={loading}
+                              >
+                                Hủy đăng ký
+                              </button>
+                            </div>
                           )}
 
                           {cls.status === 'FINDING_STUDENT' && user.role === 'TUTOR' && (
@@ -1496,7 +1718,7 @@ export default function Dashboard() {
                           )}
 
                           {cls.status === 'ACTIVATED' && (
-                            <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', width: '100%', flexWrap: 'wrap' }}>
                               <button
                                 onClick={async () => {
                                   setSelectedClass(cls);
@@ -1507,7 +1729,7 @@ export default function Dashboard() {
                                 className="btn btn-secondary"
                                 style={{ flex: 1, padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                               >
-                                <Calendar size={14} /> Xem danh sách lịch buổi học đã rải trong DB
+                                <Calendar size={14} /> Xem lịch học
                               </button>
                               {user.role === 'TUTOR' && (
                                 <button
@@ -1523,15 +1745,66 @@ export default function Dashboard() {
                                     }
                                   }}
                                   className="btn"
-                                  style={{ background: 'var(--accent-pink)', color: '#fff', border: 'none', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                                  style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                                 >
-                                  Hủy lớp
+                                  Hủy lớp (Gia sư)
+                                </button>
+                              )}
+                              {user.role === 'STUDENT' && (
+                                <button
+                                  onClick={() => handleStudentCancelClass(cls.id)}
+                                  className="btn"
+                                  style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                                  disabled={loading}
+                                >
+                                  Hủy lớp (Học viên)
                                 </button>
                               )}
                             </div>
                           )}
 
+                          {cls.status === 'COMPLETED' && user.role === 'STUDENT' && (
+                            <div style={{ width: '100%', textAlign: 'left', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {reviewedClasses[cls.id]?.reviewed ? (
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Bạn đã đánh giá:</span>
+                                    <span style={{ color: 'var(--accent-cyan)', fontWeight: 'bold', fontSize: '1rem' }}>
+                                      {"★".repeat(reviewedClasses[cls.id].rating)}{"☆".repeat(5 - reviewedClasses[cls.id].rating)}
+                                    </span>
+                                  </div>
+                                  {reviewedClasses[cls.id].comment && (
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic' }}>
+                                      "{reviewedClasses[cls.id].comment}"
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                  <span style={{ fontSize: '0.85rem', color: 'var(--success)' }}>🎉 Lớp học đã hoàn thành xuất sắc!</span>
+                                  <button
+                                    onClick={() => {
+                                      setReviewClassId(cls.id);
+                                      setReviewRating(5);
+                                      setReviewComment('');
+                                      setShowReviewModal(true);
+                                    }}
+                                    className="btn btn-primary btn-sm pulse-effect"
+                                    style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%)', border: 'none', color: 'var(--bg-primary)', fontWeight: 'bold' }}
+                                    disabled={loading}
+                                  >
+                                    ★ Đánh giá Gia sư
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
+                          {cls.status === 'COMPLETED' && user.role === 'TUTOR' && (
+                            <div style={{ width: '100%', textAlign: 'left', background: 'rgba(255,255,255,0.02)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                              <span style={{ fontSize: '0.85rem', color: 'var(--success)' }}>🎉 Lớp học đã hoàn thành xuất sắc! Đang chờ Học viên đánh giá.</span>
+                            </div>
+                          )}
 
                           {cls.status === 'PENDING_APPROVAL' && (
                             <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '0.5rem' }}>Đang chờ Admin hệ thống duyệt lớp...</span>
@@ -1630,6 +1903,13 @@ export default function Dashboard() {
                                       style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderColor: 'var(--accent-pink)', color: 'var(--accent-pink)' }}
                                     >
                                       Khiếu nại
+                                    </button>
+                                    <button
+                                      onClick={() => handleOpenRefundModal(les.id)}
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderColor: '#fbbf24', color: '#fbbf24' }}
+                                    >
+                                      💰 Yêu cầu hoàn tiền
                                     </button>
                                   </>
                                 )}
@@ -1899,16 +2179,131 @@ export default function Dashboard() {
             <div className="dash-panel active animate-fade-in">
               <div style={{ marginBottom: '2rem' }}>
                 <h1 className="heading-2">Đánh giá & Phản hồi</h1>
-                <p className="body-md text-slate">Ý kiến phản hồi cải thiện chất lượng giảng dạy.</p>
+                <p className="body-md text-slate">Ý kiến nhận xét từ học viên giúp nâng cao chất lượng giảng dạy và học tập.</p>
               </div>
 
-              <div className="card-feature">
-                <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                  <div style={{ fontSize: '2.8rem', fontWeight: 800, color: 'var(--accent-cyan)', fontFamily: 'var(--font-heading)' }}>4.9</div>
-                  <div className="star-rating" style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>★★★★★</div>
-                  <div className="body-sm text-slate">Dựa trên 28 đánh giá tổng hợp</div>
+              {user.role === 'TUTOR' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.2fr', gap: '2rem', flexWrap: 'wrap' }}>
+                  {/* Cột trái: Thống kê điểm trung bình */}
+                  <div className="card-feature" style={{ textAlign: 'center', height: 'fit-content' }}>
+                    <h3 className="heading-3" style={{ fontSize: '1.1rem', marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Chỉ số tín nhiệm của bạn</h3>
+                    <div style={{ fontSize: '3.6rem', fontWeight: 800, color: 'var(--accent-cyan)', fontFamily: 'var(--font-heading)', lineHeight: '1.1' }}>
+                      {tutorStats.averageRating || '0.0'}
+                    </div>
+                    <div style={{ color: 'var(--accent-cyan)', fontSize: '1.5rem', margin: '0.5rem 0' }}>
+                      {"★".repeat(Math.round(tutorStats.averageRating || 0)) || "☆☆☆☆☆"}
+                      {"☆".repeat(5 - Math.round(tutorStats.averageRating || 0))}
+                    </div>
+                    <div className="body-sm text-slate">Dựa trên {tutorStats.totalReviews || 0} lượt đánh giá thực tế</div>
+                  </div>
+
+                  {/* Cột phải: Lịch sử nhận xét của Học viên */}
+                  <div className="card-feature" style={{ marginBottom: 0 }}>
+                    <h3 className="heading-3" style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)', textAlign: 'left' }}>
+                      Nhận xét từ Học viên ({tutorReviews.length})
+                    </h3>
+                    
+                    {tutorReviews.length === 0 ? (
+                      <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        Bạn chưa nhận được đánh giá nào từ học viên. Hãy hoàn thành các lớp học xuất sắc để nhận phản hồi tích cực!
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                        {tutorReviews.map(rv => (
+                          <div key={rv.id} style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'rgba(255,255,255,0.01)', textAlign: 'left' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <div>
+                                <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{rv.studentFullName || 'Học viên ẩn danh'}</strong>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>({rv.studentEmail})</span>
+                              </div>
+                              <span style={{ color: 'var(--accent-cyan)', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                {"★".repeat(rv.rating)}{"☆".repeat(5 - rv.rating)}
+                              </span>
+                            </div>
+                            {rv.classTitle && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--accent-blue)', marginBottom: '0.5rem' }}>
+                                📖 Lớp học: {rv.classTitle}
+                              </div>
+                            )}
+                            {rv.comment && (
+                              <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic' }}>
+                                "{rv.comment}"
+                              </p>
+                            )}
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem', textAlign: 'right' }}>
+                              Ngày: {new Date(rv.createdAt).toLocaleDateString('vi-VN')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* Giao diện STUDENT: Liệt kê các lớp COMPLETED và trạng thái đánh giá */
+                <div className="card-feature" style={{ textAlign: 'left' }}>
+                  <h3 className="heading-3" style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)' }}>
+                    Lịch sử đánh giá lớp học của bạn
+                  </h3>
+                  
+                  {classes.filter(c => c.status === 'COMPLETED').length === 0 ? (
+                    <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      Bạn chưa có lớp học nào đã hoàn thành để viết đánh giá.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {classes.filter(c => c.status === 'COMPLETED').map(cls => {
+                        const reviewState = reviewedClasses[cls.id];
+                        return (
+                          <div key={cls.id} style={{ padding: '1.25rem', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'rgba(255,255,255,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                              <div>
+                                <strong style={{ fontSize: '1.1rem', color: '#fff' }}>{cls.title}</strong>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
+                                  Môn học: {cls.subject} | Số buổi: {cls.totalLessons} buổi
+                                </span>
+                              </div>
+                              
+                              {reviewState?.reviewed ? (
+                                <span style={{ color: 'var(--accent-cyan)', fontWeight: 'bold', fontSize: '1rem' }}>
+                                  {"★".repeat(reviewState.rating)}{"☆".repeat(5 - reviewState.rating)}
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setReviewClassId(cls.id);
+                                    setReviewRating(5);
+                                    setReviewComment('');
+                                    setShowReviewModal(true);
+                                  }}
+                                  className="btn btn-primary btn-sm"
+                                  style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%)', border: 'none', color: 'var(--bg-primary)', fontWeight: 'bold' }}
+                                  disabled={loading}
+                                >
+                                  ★ Đánh giá ngay
+                                </button>
+                              )}
+                            </div>
+                            
+                            {reviewState?.reviewed ? (
+                              <div style={{ background: 'rgba(0,0,0,0.1)', padding: '0.75rem 1rem', borderRadius: '8px', borderLeft: '3px solid var(--accent-cyan)' }}>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Nhận xét của bạn:</span>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic' }}>
+                                  "{reviewState.comment || 'Không có bình luận chi tiết.'}"
+                                </p>
+                              </div>
+                            ) : (
+                              <div style={{ color: 'var(--warning)', fontSize: '0.82rem' }}>
+                                ⚠️ Lớp học đã hoàn thành nhưng bạn chưa gửi đánh giá phản hồi chất lượng cho Gia sư.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1940,6 +2335,128 @@ export default function Dashboard() {
                     </button>
                   </form>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== VIP PANEL ==================== */}
+          {activePanel === 'vip' && (
+            <div className="dash-panel active animate-fade-in">
+              <div style={{ marginBottom: '2rem', textAlign: 'left' }}>
+                <h1 className="heading-2" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  Nâng cấp tài khoản VIP Gia sư ⭐
+                </h1>
+                <p className="body-md text-slate">Đăng ký gói VIP để đẩy bài giảng lên trang đầu và được gắn huy hiệu VIP lấp lánh nâng tầm thương hiệu cá nhân.</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem', flexWrap: 'wrap' }}>
+                {/* Cột trái: Lựa chọn gói VIP */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  
+                  {/* Trạng thái VIP hiện tại */}
+                  <div className="card-feature" style={{ textAlign: 'left', background: 'linear-gradient(135deg, rgba(141, 91, 76, 0.04) 0%, rgba(197, 137, 64, 0.04) 100%)', border: '1px solid rgba(141, 91, 76, 0.2)' }}>
+                    <h3 className="heading-3" style={{ fontSize: '1.1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      🌟 Trạng thái VIP hiện tại
+                    </h3>
+                    {user && user.vipExpiry && new Date(user.vipExpiry) > new Date() ? (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <span className="badge badge-success" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: 'var(--success)', color: '#fff', fontWeight: 'bold' }}>VIP ĐANG HOẠT ĐỘNG</span>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>
+                          Thời hạn sử dụng VIP đến hết ngày: <strong>{new Date(user.vipExpiry).toLocaleString('vi-VN')}</strong>.
+                        </p>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '0.5rem', marginBottom: 0 }}>
+                          *(Hệ thống đã tự động kích hoạt tính năng ưu tiên hiển thị hồ sơ của bạn lên đầu trang chủ và danh bạ).*
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <span className="badge badge-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)' }}>TÀI KHOẢN THƯỜNG</span>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>
+                          Tài khoản của bạn hiện tại chưa được kích hoạt dịch vụ VIP ưu tiên hiển thị.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Danh sách gói VIP */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    
+                    {/* Gói 7 ngày */}
+                    <div className="card-feature" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', border: '1px solid rgba(255, 255, 255, 0.08)', position: 'relative', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, background: 'rgba(141, 91, 76, 0.1)', padding: '0.25rem 0.75rem', fontSize: '0.7rem', color: 'var(--accent-cyan)', fontWeight: 'bold', borderBottomLeftRadius: '8px' }}>
+                        PHỔ BIẾN
+                      </div>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>VIP Tuần 🌟</div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', minHeight: '40px' }}>Trải nghiệm dịch vụ đưa hồ sơ và các lớp học mở sẵn của bạn lên đầu danh mục trong 7 ngày.</p>
+                        <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-blue)', marginBottom: '1.5rem' }}>
+                          99.000 đ <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-secondary)' }}>/ 7 ngày</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleBuyVip(7)}
+                        className="btn btn-primary w-100"
+                        style={{ padding: '0.6rem', fontSize: '0.85rem' }}
+                        disabled={loading}
+                      >
+                        Kích hoạt gói tuần
+                      </button>
+                    </div>
+
+                    {/* Gói 30 ngày */}
+                    <div className="card-feature" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', border: '1px solid var(--accent-blue)', position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg, var(--glass-bg) 0%, rgba(197, 137, 64, 0.03) 100%)' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%)', padding: '0.25rem 0.75rem', fontSize: '0.7rem', color: '#fff', fontWeight: 'bold', borderBottomLeftRadius: '8px' }}>
+                        TIẾT KIỆM 20%
+                      </div>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>VIP Tháng 🏆</div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', minHeight: '40px' }}>Hưởng trọn vẹn đặc quyền VIP ưu tiên nổi bật trên hệ thống trong suốt 30 ngày liên tục.</p>
+                        <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-blue)', marginBottom: '1.5rem' }}>
+                          299.000 đ <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-secondary)' }}>/ 30 ngày</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleBuyVip(30)}
+                        className="btn btn-primary w-100 animate-pulse-slow"
+                        style={{ padding: '0.6rem', fontSize: '0.85rem', background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%)', border: 'none', color: '#fff' }}
+                        disabled={loading}
+                      >
+                        Kích hoạt gói tháng
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Cột phải: Hướng dẫn quyền lợi */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'left' }}>
+                  <div className="card-feature" style={{ marginBottom: 0 }}>
+                    <h3 className="heading-3" style={{ fontSize: '1.05rem', color: 'var(--accent-cyan)', marginBottom: '1rem' }}>
+                      💎 Đặc quyền Tài khoản VIP
+                    </h3>
+                    <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: 0 }}>
+                      <li>🚀 <strong>Đẩy hồ sơ lên đầu</strong>: Tự động đưa hồ sơ của bạn lên đầu trang Danh bạ Gia sư công khai, tiếp cận nhanh nhất tới hàng ngàn học viên.</li>
+                      <li>📌 <strong>Ghim bài giảng/lớp mở sẵn</strong>: Tất cả các lớp học do bạn tự mở để tuyển học sinh sẽ luôn nằm trên đầu trang "Chợ Lớp Học".</li>
+                      <li>⭐ <strong>Huy hiệu VIP độc quyền</strong>: Gắn nhãn badge VIP lấp lánh (màu vàng kim) trên thẻ gia sư công khai nhằm tăng 300% uy tín thương hiệu cá nhân.</li>
+                      <li>💳 <strong>Thanh toán tự động</strong>: Phí gia hạn được khấu trừ trực tiếp từ số dư ví khả dụng. Gia sư có thể nạp tiền giả lập để kích hoạt ngay.</li>
+                    </ul>
+                  </div>
+
+                  <div className="card-feature-mint" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ fontSize: '1.8rem' }}>💳</div>
+                    <div>
+                      <strong style={{ display: 'block', fontSize: '0.88rem', color: 'var(--text-primary)', marginBottom: '0.15rem' }}>Số dư ví khả dụng hiện tại:</strong>
+                      <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
+                        {wallet.balance.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
@@ -2577,6 +3094,152 @@ export default function Dashboard() {
 
         </main>
       </div>
+
+      {/* Modal Đánh giá & Phản hồi (Rating & Review Modal) */}
+      {showReviewModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div className="card-feature animate-fade-in" style={{
+            width: '100%',
+            maxWidth: '500px',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--accent-cyan)',
+            padding: '2rem',
+            borderRadius: '16px',
+            boxShadow: '0 20px 40px rgba(102, 252, 241, 0.1)',
+            textAlign: 'left'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--accent-cyan)' }}>★ Viết đánh giá & Phản hồi</h3>
+              <button 
+                onClick={() => { setShowReviewModal(false); setReviewClassId(null); }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handlePostReview} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Chọn số sao trực quan */}
+              <div>
+                <label className="form-label" style={{ fontSize: '0.85rem', display: 'block', marginBottom: '0.5rem' }}>Số sao đánh giá chất lượng dạy học:</label>
+                <div style={{ display: 'flex', gap: '0.5rem', fontSize: '2rem' }}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <span
+                      key={star}
+                      onClick={() => setReviewRating(star)}
+                      style={{
+                        cursor: 'pointer',
+                        color: star <= reviewRating ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                        transition: 'color 0.15s'
+                      }}
+                      title={`${star} sao`}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nhập nội dung ý kiến phản hồi */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Ý kiến nhận xét chi tiết:</label>
+                <textarea
+                  className="form-input"
+                  style={{ height: '120px', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}
+                  placeholder="Hãy chia sẻ cảm nhận của bạn về gia sư, chất lượng buổi học, thái độ giảng dạy..."
+                  value={reviewComment}
+                  onChange={e => setReviewComment(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Nút submit */}
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowReviewModal(false); setReviewClassId(null); }}
+                  className="btn btn-secondary"
+                  style={{ flex: 1, padding: '0.65rem' }}
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '0.65rem', background: 'linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%)', border: 'none', color: 'var(--bg-primary)', fontWeight: 'bold' }}
+                  disabled={loading}
+                >
+                  {loading ? <div className="spinner" style={{ width: '16px', height: '16px' }} /> : 'Gửi đánh giá'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Yêu Cầu Hoàn Tiền */}
+      {refundModalOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem'
+        }}>
+          <div className="glass-card" style={{ maxWidth: '480px', width: '100%', padding: '2rem', textAlign: 'left' }}>
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              💰 Yêu Cầu Hoàn Tiền Buổi Học
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Sau khi gửi yêu cầu, buổi học sẽ chuyển sang trạng thái <strong>Tranh chấp</strong> và Admin sẽ xem xét để xử lý hoàn tiền trong vòng 24h làm việc.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Lý do yêu cầu hoàn tiền <span style={{ color: 'var(--accent-pink)' }}>*</span></label>
+              <textarea
+                className="form-input"
+                rows={4}
+                style={{ resize: 'vertical', fontSize: '0.9rem' }}
+                placeholder="Ví dụ: Gia sư không xuất hiện đúng giờ, bài giảng không đúng nội dung đã thỏa thuận..."
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+              />
+            </div>
+            {error && (
+              <div style={{ color: 'var(--accent-pink)', fontSize: '0.85rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertCircle size={15} /> {error}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => { setRefundModalOpen(false); setError(''); }}
+                className="btn btn-secondary"
+                style={{ flex: 1, padding: '0.65rem' }}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitRefund}
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '0.65rem', background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)', border: 'none', color: '#000', fontWeight: 'bold' }}
+                disabled={loading}
+              >
+                {loading ? <div className="spinner" style={{ width: '16px', height: '16px' }} /> : '📤 Gửi yêu cầu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

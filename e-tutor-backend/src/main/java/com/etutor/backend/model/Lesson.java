@@ -37,6 +37,9 @@ public class Lesson {
     @Column(name = "recording_link", length = 255)
     private String recordingLink;
 
+    @Column(name = "dispute_reason", columnDefinition = "TEXT")
+    private String disputeReason;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

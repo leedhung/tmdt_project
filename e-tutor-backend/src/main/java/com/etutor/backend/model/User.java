@@ -43,10 +43,11 @@ public class User {
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
-
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "vip_expiry")
+    private LocalDateTime vipExpiry;
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

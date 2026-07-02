@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import { 
   ArrowLeft, CreditCard, Wallet, ShieldCheck, CheckCircle2, 
-  QrCode, AlertTriangle, FileText, Check, Landmark, RefreshCw
+  QrCode, AlertTriangle, FileText, Check, Landmark, RefreshCw, Coins
 } from 'lucide-react';
 
 export default function Checkout() {
@@ -73,26 +73,22 @@ export default function Checkout() {
 
       const totalAmount = classDetail.hourlyRate * classDetail.totalLessons;
 
-      // Nếu chọn thanh toán bằng ngân hàng/QR, chúng ta tự động giả lập nạp tiền trước
       if (paymentMethod === 'BANK_QR') {
         if (wallet.balance < totalAmount) {
           const neededAmount = totalAmount - wallet.balance;
-          // Gọi API nạp tiền giả lập cho đủ số tiền cần thanh toán
           await api.post(`/wallet/deposit?amount=${neededAmount}`);
         }
-      } else {
-        // Nếu chọn Ví nhưng số dư không đủ
+      } else if (paymentMethod === 'WALLET') {
         if (wallet.balance < totalAmount) {
           throw new Error('Số dư ví khả dụng của bạn không đủ! Hãy chọn phương thức chuyển khoản ngân hàng hoặc nạp thêm tiền.');
         }
       }
 
-      // Thực hiện thanh toán Escrow thực tế qua API
+      // Thực hiện thanh toán thực tế qua API
       if (classDetail.isMock) {
-        // Giả lập cho lớp mock
         setPaymentSuccess(true);
       } else {
-        await api.post(`/class/${classId}/pay`);
+        await api.post(`/class/${classId}/pay?method=${paymentMethod}`);
         setPaymentSuccess(true);
       }
     } catch (err) {
@@ -269,6 +265,30 @@ export default function Checkout() {
                   {paymentMethod === 'BANK_QR' && <div style={{ background: 'var(--accent-cyan)', borderRadius: '50%', padding: '2px', color: '#fff' }}><Check size={14} strokeWidth={3} /></div>}
                 </div>
 
+                {/* Method 3: Cash Payment */}
+                <div 
+                  onClick={() => setPaymentMethod('CASH')}
+                  style={{
+                    border: `1px solid ${paymentMethod === 'CASH' ? 'var(--accent-cyan)' : 'var(--border-color)'}`,
+                    background: paymentMethod === 'CASH' ? 'rgba(141,91,76,0.05)' : 'rgba(255,255,255,0.6)',
+                    padding: '1.25rem',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Coins size={24} style={{ color: paymentMethod === 'CASH' ? 'var(--accent-cyan)' : 'var(--text-secondary)' }} />
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Thanh toán bằng Tiền mặt trực tiếp</strong>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Học viên thanh toán tay cho Gia sư (Không qua ví Escrow của sàn)</span>
+                    </div>
+                  </div>
+                  {paymentMethod === 'CASH' && <div style={{ background: 'var(--accent-cyan)', borderRadius: '50%', padding: '2px', color: '#fff' }}><Check size={14} strokeWidth={3} /></div>}
+                </div>
+
               </div>
             </div>
 
@@ -302,7 +322,7 @@ export default function Checkout() {
                 {!isBalanceSufficient ? (
                   <div style={{ background: 'rgba(236,72,153,0.03)', border: '1px dashed rgba(236,72,153,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', display: 'flex', gap: '0.5rem', color: 'var(--accent-pink)' }}>
                     <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-                    <span>Học phí lớn hơn số dư ví khả dụng. Vui lòng nạp thêm tiền hoặc chọn **Chuyển khoản Ngân hàng** để quét QR thanh toán nhanh!</span>
+                    <span>Học phí lớn hơn số dư ví khả dụng. Vui lòng nạp thêm tiền hoặc chọn phương thức khác!</span>
                   </div>
                 ) : (
                   <div style={{ background: 'rgba(16,185,129,0.03)', border: '1px dashed rgba(16,185,129,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', display: 'flex', gap: '0.5rem', color: 'var(--success)' }}>
@@ -318,6 +338,35 @@ export default function Checkout() {
                   style={{ padding: '0.8rem' }}
                 >
                   {processing ? 'Đang thực hiện thanh toán...' : 'Thanh toán & Kích hoạt'}
+                </button>
+              </div>
+            ) : paymentMethod === 'CASH' ? (
+              <div className="glass-card" style={{ padding: '2rem', textAlign: 'left' }}>
+                <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Xác nhận Tiền mặt</h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Học phí chốt lớp:</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{totalAmount.toLocaleString('vi-VN')} đ</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Hình thức:</span>
+                    <strong style={{ color: 'var(--accent-cyan)' }}>Giao dịch tiền mặt trực tiếp</strong>
+                  </div>
+                </div>
+
+                <div style={{ background: 'rgba(245, 158, 11, 0.03)', border: '1px dashed rgba(245, 158, 11, 0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.8rem', display: 'flex', gap: '0.5rem', color: '#fbbf24' }}>
+                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                  <span>Hai bên tự thỏa thuận thời điểm giao nhận tiền mặt. Hệ thống chỉ hỗ trợ ghi nhận và rải lịch học tự động cho lớp học.</span>
+                </div>
+
+                <button 
+                  onClick={handlePay} 
+                  className="btn btn-primary w-100" 
+                  disabled={processing}
+                  style={{ padding: '0.8rem' }}
+                >
+                  {processing ? 'Đang kích hoạt...' : 'Xác nhận & Kích hoạt'}
                 </button>
               </div>
             ) : (

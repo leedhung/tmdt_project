@@ -59,6 +59,10 @@ public class ClassEntity {
     @Column(name = "schedule_config", nullable = false, columnDefinition = "TEXT")
     private String scheduleConfig; // Lưu chuỗi JSON cấu hình slots: [{"dayOfWeek": 2, "startTime": "19:00", "endTime": "21:00"}, ...]
 
+    @Column(name = "payment_method", nullable = false, length = 20)
+    @Builder.Default
+    private String paymentMethod = "WALLET";
+
     @Column(nullable = false, length = 50)
     private String status = "PENDING_APPROVAL"; // PENDING_APPROVAL, REJECTED, FINDING_TUTOR, WAITING_PAYMENT, ACTIVATED, COMPLETED
 
@@ -67,6 +71,9 @@ public class ClassEntity {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Transient
+    private Boolean isTutorVip;
 
     @PrePersist
     protected void onCreate() {

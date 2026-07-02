@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import { showAlert } from '../utils/notification';
 import { 
   Search, BookOpen, MapPin, Award, ChevronRight, Phone, Mail, 
   Star, Users, Briefcase, RefreshCw, SlidersHorizontal, ArrowUpDown, 
@@ -17,12 +18,33 @@ export default function TutorsDirectory() {
   const [universityFilter, setUniversityFilter] = useState('');
   const [rateFilter, setRateFilter] = useState('ALL');
   const [ratingFilter, setRatingFilter] = useState('ALL');
+  const [qualificationsFilter, setQualificationsFilter] = useState('ALL');
+  const [experienceFilter, setExperienceFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('RATING_DESC');
   const [selectedTutor, setSelectedTutor] = useState(null);
+  const [selectedTutorReviews, setSelectedTutorReviews] = useState([]);
 
   const [realTutors, setRealTutors] = useState([]);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Tự động tải đánh giá chi tiết khi click xem Gia sư
+  useEffect(() => {
+    if (selectedTutor) {
+      const getReviews = async () => {
+        try {
+          const res = await api.get(`/reviews/tutor/${selectedTutor.id}`);
+          setSelectedTutorReviews(res.data);
+        } catch (e) {
+          console.error("Không thể tải lịch sử đánh giá gia sư chi tiết", e);
+          setSelectedTutorReviews([]);
+        }
+      };
+      getReviews();
+    } else {
+      setSelectedTutorReviews([]);
+    }
+  }, [selectedTutor]);
 
   // Tải danh sách tất cả user và lọc vai trò TUTOR
   useEffect(() => {
@@ -39,7 +61,18 @@ export default function TutorsDirectory() {
     try {
       setLoading(true);
       const res = await api.get('/auth/tutors/active');
-      const detailedTutors = res.data.map((t) => {
+      const detailedTutors = await Promise.all(res.data.map(async (t) => {
+        let avgRating = 5.0;
+        let reviewsCount = 0;
+        try {
+          const tutorId = t.userId || t.id;
+          const statsRes = await api.get(`/reviews/tutor/${tutorId}/average`);
+          avgRating = statsRes.data.averageRating || 0.0;
+          reviewsCount = statsRes.data.totalReviews || 0;
+        } catch (err) {
+          console.error(`Không thể lấy thống kê đánh giá của gia sư ${t.userId || t.id}`, err);
+        }
+
         return {
           id: t.userId || t.id,
           fullName: t.fullName || "Gia sư ẩn danh",
@@ -51,13 +84,15 @@ export default function TutorsDirectory() {
           qualifications: t.qualifications || "Chứng chỉ sư phạm",
           experience: t.experience || "Chưa cập nhật kinh nghiệm tự bạch.",
           certificates: t.certificates || "[]",
-          rating: 5.0,
-          reviews: 12,
+          // Nếu gia sư chưa có đánh giá nào, ta mặc định hiển thị 5.0 để tạo thiện cảm ban đầu, 
+          // nhưng số reviews = 0 sẽ phản ánh đúng.
+          rating: reviewsCount === 0 ? 5.0 : avgRating,
+          reviews: reviewsCount,
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200",
           badge: t.qualifications || "Gia sư mới",
           isReal: true
         };
-      });
+      }));
       setRealTutors(detailedTutors);
     } catch (e) {
       console.error('Không thể kết nối lấy danh sách gia sư hoạt động', e);
@@ -104,7 +139,23 @@ export default function TutorsDirectory() {
       matchesRating = t.rating >= 4.5;
     }
 
-    return matchesSearch && matchesSubject && matchesUniversity && matchesRate && matchesRating;
+    // 6. Lọc theo Trình độ học vấn
+    let matchesQualifications = true;
+    if (qualificationsFilter !== 'ALL') {
+      matchesQualifications = t.qualifications && t.qualifications.toLowerCase().includes(qualificationsFilter.toLowerCase());
+    }
+
+    // 7. Lọc theo Kinh nghiệm giảng dạy
+    let matchesExperience = true;
+    if (experienceFilter === 'UNDER_2') {
+      matchesExperience = t.experience && (t.experience.includes('1 năm') || t.experience.includes('dưới 2') || t.experience.includes('6 tháng') || !t.experience.match(/\d+ năm/));
+    } else if (experienceFilter === '2_5') {
+      matchesExperience = t.experience && (t.experience.includes('2 năm') || t.experience.includes('3 năm') || t.experience.includes('4 năm') || t.experience.includes('5 năm'));
+    } else if (experienceFilter === 'OVER_5') {
+      matchesExperience = t.experience && (t.experience.includes('6 năm') || t.experience.includes('7 năm') || t.experience.includes('8 năm') || t.experience.includes('9 năm') || t.experience.includes('10 năm') || t.experience.includes('trên 5'));
+    }
+
+    return matchesSearch && matchesSubject && matchesUniversity && matchesRate && matchesRating && matchesQualifications && matchesExperience;
   });
 
   // Áp dụng sắp xếp
@@ -138,7 +189,11 @@ export default function TutorsDirectory() {
       navigate('/login');
       return;
     }
-    alert(`Đã gửi yêu cầu kết nối với Gia sư "${tutor.fullName}" thành công! Lớp học của bạn đang chờ phê duyệt từ gia sư hoặc thông báo mời dạy đã gửi tới hòm thư.`);
+    showAlert(
+      'Yêu cầu kết nối thành công',
+      `Đã gửi yêu cầu kết nối với Gia sư "${tutor.fullName}" thành công! Lớp học của bạn đang chờ phê duyệt từ gia sư hoặc thông báo mời dạy đã được gửi tới hòm thư.`,
+      'success'
+    );
   };
 
   return (
@@ -219,6 +274,8 @@ export default function TutorsDirectory() {
                   setUniversityFilter('');
                   setRateFilter('ALL');
                   setRatingFilter('ALL');
+                  setQualificationsFilter('ALL');
+                  setExperienceFilter('ALL');
                 }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
               >
@@ -297,7 +354,7 @@ export default function TutorsDirectory() {
 
             {/* Filter by Rating */}
             <div className="form-group">
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Đánh giá đánh giá</label>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Đánh giá xếp loại</label>
               <select 
                 className="form-select" 
                 style={{ fontSize: '0.85rem' }}
@@ -307,6 +364,43 @@ export default function TutorsDirectory() {
                 <option value="ALL">Mọi điểm đánh giá</option>
                 <option value="5_STAR">Xuất sắc (Đạt 5.0 ⭐)</option>
                 <option value="OVER_4">Rất tốt (Đạt 4.5+ ⭐)</option>
+              </select>
+            </div>
+
+            {/* Filter by Qualifications */}
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <GraduationCap size={13} /> Trình độ học vấn
+              </label>
+              <select 
+                className="form-select" 
+                style={{ fontSize: '0.85rem' }}
+                value={qualificationsFilter}
+                onChange={(e) => setQualificationsFilter(e.target.value)}
+              >
+                <option value="ALL">Mọi trình độ</option>
+                <option value="Sinh viên">🎓 Sinh viên</option>
+                <option value="Cử nhân">📜 Cử nhân</option>
+                <option value="Thạc sĩ">🏅 Thạc sĩ / Nghiên cứu sinh</option>
+                <option value="Giáo viên">👨‍🏫 Giáo viên chuyên nghiệp</option>
+              </select>
+            </div>
+
+            {/* Filter by Experience */}
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Briefcase size={13} /> Kinh nghiệm giảng dạy
+              </label>
+              <select 
+                className="form-select" 
+                style={{ fontSize: '0.85rem' }}
+                value={experienceFilter}
+                onChange={(e) => setExperienceFilter(e.target.value)}
+              >
+                <option value="ALL">Mọi mức kinh nghiệm</option>
+                <option value="UNDER_2">🌱 Dưới 2 năm</option>
+                <option value="2_5">⚡ Từ 2 đến 5 năm</option>
+                <option value="OVER_5">🏆 Trên 5 năm</option>
               </select>
             </div>
 
@@ -352,7 +446,9 @@ export default function TutorsDirectory() {
                     className="glass-card" 
                     style={{ 
                       padding: '1.75rem',
-                      border: t.isReal ? '1px solid rgba(141, 91, 76, 0.35)' : '1px solid var(--glass-border)',
+                      border: t.vipExpiry && new Date(t.vipExpiry) > new Date() ? '1.5px solid rgba(197, 137, 64, 0.65)' : t.isReal ? '1px solid rgba(141, 91, 76, 0.35)' : '1px solid var(--glass-border)',
+                      background: t.vipExpiry && new Date(t.vipExpiry) > new Date() ? 'linear-gradient(135deg, var(--glass-bg) 0%, rgba(197, 137, 64, 0.05) 100%)' : 'var(--glass-bg)',
+                      boxShadow: t.vipExpiry && new Date(t.vipExpiry) > new Date() ? '0 8px 32px rgba(197, 137, 64, 0.08)' : 'none',
                       display: 'grid',
                       gridTemplateColumns: '80px 1fr 180px',
                       gap: '1.5rem',
@@ -365,7 +461,7 @@ export default function TutorsDirectory() {
                       <img 
                         src={t.avatar} 
                         alt={t.fullName} 
-                        style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--accent-cyan)' }} 
+                        style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: t.vipExpiry && new Date(t.vipExpiry) > new Date() ? '2.5px solid #e5ba73' : '2px solid var(--accent-cyan)' }} 
                       />
                       {t.isReal && (
                         <span style={{ position: 'absolute', right: 0, bottom: 0, background: 'var(--success)', borderRadius: '50%', border: '2px solid var(--bg-primary)', display: 'flex', padding: '0.15rem' }}>
@@ -378,6 +474,11 @@ export default function TutorsDirectory() {
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
                         <h3 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, color: 'var(--text-primary)' }}>{t.fullName}</h3>
+                        {t.vipExpiry && new Date(t.vipExpiry) > new Date() && (
+                          <span className="badge" style={{ fontSize: '0.62rem', padding: '0.15rem 0.5rem', background: 'linear-gradient(135deg, #e5ba73 0%, #c58940 100%)', color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.15rem', boxShadow: '0 2px 8px rgba(197,137,64,0.3)' }}>
+                            ⭐ VIP
+                          </span>
+                        )}
                         <span className="badge badge-cyan" style={{ fontSize: '0.62rem', padding: '0.15rem 0.5rem' }}>{t.badge}</span>
                       </div>
                       
@@ -575,6 +676,40 @@ export default function TutorsDirectory() {
                         >
                           Mở tài liệu ↗
                         </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Lịch sử nhận xét của học viên */}
+            <div style={{ marginBottom: '2.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.5rem' }}>
+                <Star size={18} style={{ color: 'var(--warning)' }} /> Đánh giá từ Học viên ({selectedTutorReviews.length})
+              </h3>
+
+              {selectedTutorReviews.length === 0 ? (
+                <div style={{ padding: '1.5rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                  Gia sư này chưa nhận được đánh giá nào từ học viên.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                  {selectedTutorReviews.map(rv => (
+                    <div key={rv.id} style={{ padding: '1rem', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', background: 'rgba(255,255,255,0.01)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#fff' }}>{rv.studentFullName || 'Học viên ẩn danh'}</span>
+                        <span style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>
+                          {"★".repeat(rv.rating)}{"☆".repeat(5 - rv.rating)}
+                        </span>
+                      </div>
+                      {rv.comment && (
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic', lineHeight: 1.4 }}>
+                          "{rv.comment}"
+                        </p>
+                      )}
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.35rem', textAlign: 'right' }}>
+                        {new Date(rv.createdAt).toLocaleDateString('vi-VN')}
                       </div>
                     </div>
                   ))}

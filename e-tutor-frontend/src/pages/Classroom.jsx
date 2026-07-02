@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { showAlert } from '../utils/notification';
 import {
   ArrowLeft, Clock, CheckCircle, AlertTriangle, Play,
   BookOpen, User, RefreshCw, Sparkles, LogOut, Award,
@@ -191,7 +192,7 @@ export default function Classroom() {
     const reason = window.prompt('Nhập lý do khiếu nại (ví dụ: Gia sư vắng mặt, dạy sai giờ, chất lượng không đạt...):');
     if (reason === null) return; // Cancelled
     if (!reason.trim()) {
-      alert('Vui lòng nhập lý do để khiếu nại!');
+      showAlert('Yêu cầu nhập thông tin', 'Vui lòng nhập lý do để khiếu nại!', 'warning');
       return;
     }
     try {

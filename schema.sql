@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone VARCHAR(20),
     avatar VARCHAR(255),
     is_verified BOOLEAN DEFAULT FALSE, -- Dành cho Gia sư (chờ Admin duyệt)
+    vip_expiry TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     wallet_id BIGINT NOT NULL,
     amount DECIMAL(15, 2) NOT NULL,
-    type ENUM('DEPOSIT', 'WITHDRAW', 'LOCK', 'UNLOCK') NOT NULL, -- LOCK: Đóng băng học phí, UNLOCK: Giải ngân/hoàn trả
+    type ENUM('DEPOSIT', 'WITHDRAW', 'LOCK', 'UNLOCK', 'REFUND', 'COMMISSION', 'VIP_PURCHASE') NOT NULL, -- LOCK: Đóng băng học phí, UNLOCK: Giải ngân/hoàn trả
     status ENUM('PENDING', 'SUCCESS', 'FAILED') DEFAULT 'PENDING' NOT NULL,
     description VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS classes (
     hourly_rate DECIMAL(12, 2) NOT NULL,
     total_lessons INT NOT NULL,                              -- Tổng số buổi học đăng ký
     schedule_config TEXT NOT NULL,                           -- Định dạng chuỗi JSON cấu hình thứ, giờ học cố định
+    payment_method VARCHAR(20) DEFAULT 'WALLET' NOT NULL,
     status VARCHAR(50) DEFAULT 'PENDING_APPROVAL' NOT NULL,  -- PENDING_APPROVAL, REJECTED, FINDING_TUTOR, WAITING_PAYMENT, ACTIVATED, COMPLETED
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -94,6 +96,20 @@ CREATE TABLE IF NOT EXISTS lessons (
     recording_link VARCHAR(255),                            -- Link video ghi hình
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 8. Bảng Đánh giá & Phản hồi (Reviews)
+CREATE TABLE IF NOT EXISTS reviews (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    class_id BIGINT NOT NULL UNIQUE,                         -- Mỗi lớp học chỉ được đánh giá 1 lần duy nhất
+    student_id BIGINT NOT NULL,
+    tutor_id BIGINT NOT NULL,
+    rating INT NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (tutor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- Chèn dữ liệu mẫu cho tài khoản Admin mặc định (mật khẩu mặc định: 'admin123' - sẽ được BCrypt mã hóa)

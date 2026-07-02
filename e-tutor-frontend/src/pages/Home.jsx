@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import { showAlert } from '../utils/notification';
 import { 
   Search, BookOpen, GraduationCap, MapPin, Award, CheckCircle, 
   ChevronRight, Phone, Mail, ShieldAlert, Star, Users, Briefcase,
@@ -65,7 +66,8 @@ export default function Home() {
           rating: 5.0,
           reviews: 12,
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200",
-          badge: t.qualifications || "Gia sư mới"
+          badge: t.qualifications || "Gia sư mới",
+          vipExpiry: t.vipExpiry
         };
       });
       setRealTutors(detailedTutors);
@@ -266,15 +268,34 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '2rem' }}>
-          {filteredTutors.map(t => (
-            <div key={t.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-                <img src={t.avatar} alt={t.name} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--accent-cyan)' }} />
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                    <strong style={{ color: 'var(--text-primary)', fontSize: '1.15rem' }}>{t.name}</strong>
-                    <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem' }}>{t.badge}</span>
-                  </div>
+          {filteredTutors.map(t => {
+            const isVip = t.vipExpiry && new Date(t.vipExpiry) > new Date();
+            return (
+              <div 
+                key={t.id} 
+                className="glass-card" 
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: '1.25rem', 
+                  padding: '1.5rem',
+                  border: isVip ? '1.5px solid rgba(197, 137, 64, 0.65)' : '1px solid var(--glass-border)',
+                  background: isVip ? 'linear-gradient(135deg, var(--glass-bg) 0%, rgba(197, 137, 64, 0.05) 100%)' : 'var(--glass-bg)',
+                  boxShadow: isVip ? '0 8px 32px rgba(197, 137, 64, 0.08)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
+                  <img src={t.avatar} alt={t.name} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: isVip ? '2.5px solid #e5ba73' : '2px solid var(--accent-cyan)' }} />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                      <strong style={{ color: 'var(--text-primary)', fontSize: '1.15rem' }}>{t.name}</strong>
+                      {isVip && (
+                        <span className="badge" style={{ fontSize: '0.62rem', padding: '0.15rem 0.5rem', background: 'linear-gradient(135deg, #e5ba73 0%, #c58940 100%)', color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.15rem', boxShadow: '0 2px 8px rgba(197,137,64,0.3)' }}>
+                          ⭐ VIP
+                        </span>
+                      )}
+                      <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem' }}>{t.badge}</span>
+                    </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>
                     <Star size={16} fill="var(--warning)" />
                     <strong>{t.rating}</strong>
@@ -306,8 +327,9 @@ export default function Home() {
                 Liên Hệ Nhận Lớp
               </button>
             </div>
-          ))}
-        </div>
+          );
+        })}
+      </div>
       </section>
 
       {/* Classes Board Section (Lớp Học Cần Gia Sư) */}
@@ -363,16 +385,16 @@ export default function Home() {
                         try {
                           if (cls.isReal) {
                             await api.post(`/class/${cls.id}/register`);
-                            alert(`Đăng ký lớp "${cls.title}" thành công! Hãy tiến hành thanh toán học phí bảo chứng Escrow tại Dashboard để chính thức kích hoạt lớp học.`);
+                            showAlert('Đăng ký lớp thành công', `Đăng ký lớp "${cls.title}" thành công! Hãy tiến hành thanh toán học phí bảo chứng Escrow tại Dashboard để chính thức kích hoạt lớp học.`, 'success');
                           } else {
-                            alert(`[Giả lập] Đăng ký lớp "${cls.title}" thành công! Vui lòng thanh toán học phí bảo chứng Escrow tại Dashboard.`);
+                            showAlert('Đăng ký lớp thành công', `[Giả lập] Đăng ký lớp "${cls.title}" thành công! Vui lòng thanh toán học phí bảo chứng Escrow tại Dashboard.`, 'success');
                           }
                           navigate('/dashboard');
                         } catch (err) {
-                          alert(err.response?.data?.error || 'Đăng ký lớp học thất bại!');
+                          showAlert('Lỗi đăng ký lớp', err.response?.data?.error || 'Đăng ký lớp học thất bại!', 'error');
                         }
                       } else if (user && user.role === 'TUTOR') {
-                        alert('Bạn đang có tài khoản Gia sư. Chỉ Học viên mới có thể đăng ký học các lớp do Gia sư mở sẵn!');
+                        showAlert('Yêu cầu vai trò', 'Bạn đang có tài khoản Gia sư. Chỉ Học viên mới có thể đăng ký học các lớp do Gia sư mở sẵn!', 'warning');
                       } else if (user && user.role === 'ADMIN') {
                         navigate('/admin');
                       }
@@ -382,12 +404,12 @@ export default function Home() {
                         try {
                           if (cls.isReal) {
                             await api.post(`/class/${cls.id}/apply`);
-                            alert(`Đã gửi đơn ứng tuyển vào lớp "${cls.title}" thành công! Vui lòng chờ Học viên phê duyệt.`);
+                            showAlert('Ứng tuyển thành công', `Đã gửi đơn ứng tuyển vào lớp "${cls.title}" thành công! Vui lòng chờ Học viên phê duyệt.`, 'success');
                           } else {
-                            alert(`[Giả lập] Gửi đơn ứng tuyển lớp "${cls.title}" thành công!`);
+                            showAlert('Ứng tuyển thành công', `[Giả lập] Gửi đơn ứng tuyển lớp "${cls.title}" thành công!`, 'success');
                           }
                         } catch (err) {
-                          alert(err.response?.data?.error || 'Ứng tuyển thất bại!');
+                          showAlert('Lỗi ứng tuyển', err.response?.data?.error || 'Ứng tuyển thất bại!', 'error');
                         }
                       } else if (user && user.role === 'ADMIN') {
                         navigate('/admin');

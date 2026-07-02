@@ -34,4 +34,5 @@ public class ProfileDto {
     private String certificates; // Certificates JSON String (NEW)
     private String status; // Review status (NEW)
     private String rejectReason; // Reject reason (NEW)
+    private java.time.LocalDateTime vipExpiry;
 }

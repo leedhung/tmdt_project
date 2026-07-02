@@ -30,6 +30,16 @@ export default function AdminDashboard() {
     { id: 3, type: "Yêu cầu thay đổi lịch", content: "Gia sư xin phép đổi buổi học Thứ 4 sang Chủ Nhật tuần này.", classTitle: "Piano cơ bản tại nhà", status: "RESOLVED" }
   ]);
 
+  // States for Withdrawal Approval and Transaction Auditing
+  const [pendingWithdraws, setPendingWithdraws] = useState([]);
+  const [allTransactions, setAllTransactions] = useState([]);
+  const [selectedWithdrawTx, setSelectedWithdrawTx] = useState(null);
+  const [showWithdrawRejectBox, setShowWithdrawRejectBox] = useState(false);
+  const [rejectWithdrawReason, setRejectWithdrawReason] = useState('');
+  const [txSearch, setTxSearch] = useState('');
+  const [txTypeFilter, setTxTypeFilter] = useState('ALL');
+  const [txStatusFilter, setTxStatusFilter] = useState('ALL');
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -135,6 +145,22 @@ export default function AdminDashboard() {
         setCashflow(cashflowRes.data);
       } catch (e) {
         console.error("Không thể tải thống kê dòng tiền", e);
+      }
+
+      // 7. Tải yêu cầu rút tiền chờ duyệt
+      try {
+        const withdrawalsRes = await api.get('/wallet/admin/withdrawals/pending');
+        setPendingWithdraws(withdrawalsRes.data);
+      } catch (e) {
+        console.error("Không thể tải danh sách rút tiền chờ duyệt", e);
+      }
+
+      // 8. Tải nhật ký giao dịch toàn sàn phục vụ đối soát
+      try {
+        const allTxRes = await api.get('/wallet/admin/transactions/all');
+        setAllTransactions(allTxRes.data);
+      } catch (e) {
+        console.error("Không thể tải nhật ký giao dịch đối soát toàn sàn", e);
       }
 
     } catch (err) {
@@ -339,29 +365,50 @@ export default function AdminDashboard() {
     }
   };
 
-  // XỬ LÝ GIẢI QUYẾT TICKET CHO ADMIN
-  const handleResolveTicket = async (ticketId, lessonId, decision) => {
-    if (lessonId) {
-      try {
-        setError('');
-        setSuccess('');
-        setLoading(true);
-        await api.post(`/class/lessons/${lessonId}/resolve-dispute?decision=${decision}`);
-        setSuccess(decision === 'REFUND' 
-          ? `Đã hoàn phí thành công cho Học viên đối với khiếu nại #${ticketId}!`
-          : `Đã giải ngân thành công cho Gia sư đối với khiếu nại #${ticketId}!`
-        );
-        fetchData();
-      } catch (err) {
-        setError(err.response?.data?.error || 'Xử lý khiếu nại thất bại!');
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "RESOLVED" } : t));
-      setSuccess(`Đã xử lý khiếu nại #${ticketId} thành công! Hệ thống tự động gửi thông báo hoàn phí.`);
+  // ADMIN PHÊ DUYỆT RÚT TIỀN THẬT
+  const handleApproveWithdraw = async (transactionId) => {
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      const res = await api.post(`/wallet/admin/withdrawals/${transactionId}/approve`);
+      setSuccess(res.data.message || 'Đã phê duyệt yêu cầu rút tiền thành công!');
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Phê duyệt yêu cầu rút tiền thất bại!');
+    } finally {
+      setLoading(false);
     }
   };
+
+  // ADMIN TỪ CHỐI RÚT TIỀN THẬT
+  const handleRejectWithdraw = async (transactionId) => {
+    if (!rejectWithdrawReason.trim()) {
+      setError('Vui lòng nhập lý do từ chối cụ thể!');
+      return;
+    }
+    try {
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      const res = await api.post(`/wallet/admin/withdrawals/${transactionId}/reject`, {
+        reason: rejectWithdrawReason.trim()
+      });
+      setSuccess(res.data.message || 'Đã từ chối yêu cầu rút tiền và hoàn lại số dư cho thành viên!');
+      setSelectedWithdrawTx(null);
+      setRejectWithdrawReason('');
+      setShowWithdrawRejectBox(false);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Từ chối yêu cầu rút tiền thất bại!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
 
   if (!user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>;
 
@@ -453,6 +500,23 @@ export default function AdminDashboard() {
               onClick={() => { setActivePanel('payment'); setSidebarOpen(false); }}
             >
               <WalletIcon size={18} /> Giám sát Ví tiền sàn
+            </a>
+            <a 
+              className={`sidebar-link ${activePanel === 'withdrawals' ? 'active' : ''}`}
+              onClick={() => { setActivePanel('withdrawals'); setSidebarOpen(false); setSelectedWithdrawTx(null); setShowWithdrawRejectBox(false); setRejectWithdrawReason(''); }}
+            >
+              <CreditCard size={18} /> Duyệt yêu cầu Rút tiền
+              {pendingWithdraws.length > 0 && (
+                <span className="badge badge-danger" style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '10px', marginLeft: 'auto', background: '#ef4444', color: '#fff', fontWeight: 'bold' }}>
+                  {pendingWithdraws.length}
+                </span>
+              )}
+            </a>
+            <a 
+              className={`sidebar-link ${activePanel === 'transactions' ? 'active' : ''}`}
+              onClick={() => { setActivePanel('transactions'); setSidebarOpen(false); }}
+            >
+              <Layers size={18} /> Nhật ký Giao dịch sàn
             </a>
             <a 
               className={`sidebar-link ${activePanel === 'support' ? 'active' : ''}`}
@@ -1283,6 +1347,277 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+              </div>
+            </div>
+          )}
+
+          {/* ==================== VÀO BỔ SUNG: 4.2 DUYỆT RÚT TIỀN PANEL ==================== */}
+          {activePanel === 'withdrawals' && (
+            <div className="dash-panel active animate-fade-in">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                <div>
+                  <h1 className="heading-2">Phê duyệt yêu cầu Rút tiền 💳</h1>
+                  <p className="body-md text-slate">Thẩm định và phê duyệt các yêu cầu rút tiền của Gia sư và Học viên về tài khoản ngân hàng.</p>
+                </div>
+                <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem' }}>
+                  <RefreshCw size={16} /> Làm mới
+                </button>
+              </div>
+
+              <div className="card-feature" style={{ textAlign: 'left' }}>
+                <h2 className="heading-3" style={{ marginBottom: '1.25rem' }}>Yêu cầu rút tiền chờ phê duyệt</h2>
+                
+                {pendingWithdraws.length === 0 ? (
+                  <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                    Không có yêu cầu rút tiền nào đang chờ phê duyệt.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)' }}>
+                            <th style={{ padding: '0.75rem' }}>Mã GD</th>
+                            <th style={{ padding: '0.75rem' }}>Người yêu cầu</th>
+                            <th style={{ padding: '0.75rem' }}>Mã ví</th>
+                            <th style={{ padding: '0.75rem' }}>Số tiền</th>
+                            <th style={{ padding: '0.75rem' }}>Thời gian yêu cầu</th>
+                            <th style={{ padding: '0.75rem' }}>Trạng thái</th>
+                            <th style={{ padding: '0.75rem', textAlign: 'right' }}>Hành động</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingWithdraws.map(tx => (
+                            <tr key={tx.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                              <td style={{ padding: '0.75rem', fontWeight: 'bold', color: 'var(--accent-pink)' }}>#{tx.id}</td>
+                              <td style={{ padding: '0.75rem' }}>
+                                <div style={{ fontWeight: 'bold' }}>{tx.userFullName || 'N/A'}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{tx.userEmail}</div>
+                              </td>
+                              <td style={{ padding: '0.75rem' }}>#{tx.walletId}</td>
+                              <td style={{ padding: '0.75rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>{tx.amount.toLocaleString('vi-VN')} đ</td>
+                              <td style={{ padding: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {tx.createdAt ? new Date(tx.createdAt).toLocaleString('vi-VN') : 'N/A'}
+                              </td>
+                              <td style={{ padding: '0.75rem' }}>
+                                <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>CHỜ DUYỆT</span>
+                              </td>
+                              <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Phê duyệt giao dịch rút tiền #${tx.id} số tiền ${tx.amount.toLocaleString('vi-VN')}đ?`)) {
+                                        handleApproveWithdraw(tx.id);
+                                      }
+                                    }}
+                                    className="btn btn-primary btn-sm"
+                                    style={{ background: 'var(--success)', borderColor: 'var(--success)', color: '#fff', fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                    disabled={loading}
+                                  >
+                                    Phê duyệt
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedWithdrawTx(tx);
+                                      setShowWithdrawRejectBox(true);
+                                      setRejectWithdrawReason('');
+                                    }}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ borderColor: '#ef4444', color: '#ef4444', background: 'transparent', fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                    disabled={loading}
+                                  >
+                                    Từ chối
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {showWithdrawRejectBox && selectedWithdrawTx && (
+                      <div className="animate-fade-in" style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '1.25rem', borderRadius: '12px', marginTop: '1rem' }}>
+                        <h4 style={{ color: '#ef4444', margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 600 }}>Từ chối yêu cầu rút tiền #{selectedWithdrawTx.id} của {selectedWithdrawTx.userFullName}</h4>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Số tiền rút: <strong>{selectedWithdrawTx.amount.toLocaleString('vi-VN')} đ</strong>. Khi từ chối, số tiền này sẽ tự động được hoàn trả vào số dư khả dụng của thành viên.</p>
+                        <div className="form-group" style={{ marginBottom: '1rem' }}>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Lý do từ chối:</label>
+                          <textarea
+                            className="form-input"
+                            rows="2"
+                            placeholder="Nhập lý do cụ thể (Ví dụ: Thông tin tài khoản ngân hàng không hợp lệ, tên chủ thẻ không trùng khớp...)"
+                            value={rejectWithdrawReason}
+                            onChange={e => setRejectWithdrawReason(e.target.value)}
+                            style={{ width: '100%', fontSize: '0.85rem' }}
+                            required
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => handleRejectWithdraw(selectedWithdrawTx.id)}
+                            className="btn btn-primary btn-sm"
+                            style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff', fontSize: '0.8rem', padding: '0.35rem 1rem' }}
+                            disabled={loading}
+                          >
+                            Xác nhận từ chối
+                          </button>
+                          <button
+                            onClick={() => { setSelectedWithdrawTx(null); setShowWithdrawRejectBox(false); setRejectWithdrawReason(''); }}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.8rem', padding: '0.35rem 1rem' }}
+                            disabled={loading}
+                          >
+                            Hủy bỏ
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ==================== VÀO BỔ SUNG: 4.3 NHẬT KÝ ĐỐI SOÁT GIAO DỊCH PANEL ==================== */}
+          {activePanel === 'transactions' && (
+            <div className="dash-panel active animate-fade-in">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                <div>
+                  <h1 className="heading-2">Nhật ký Giao dịch & Đối soát sàn 📊</h1>
+                  <p className="body-md text-slate">Tra cứu lịch sử giao dịch toàn sàn phục vụ đối soát, thống kê và kiểm tra dòng tiền.</p>
+                </div>
+                <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem' }}>
+                  <RefreshCw size={16} /> Làm mới
+                </button>
+              </div>
+
+              <div className="card-feature" style={{ textAlign: 'left' }}>
+                {/* Filters */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Tìm kiếm người dùng/Mã ví</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Tìm theo email, tên, mã ví, mã GD..."
+                      value={txSearch}
+                      onChange={e => setTxSearch(e.target.value)}
+                      style={{ fontSize: '0.85rem' }}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Loại giao dịch</label>
+                    <select
+                      className="form-input"
+                      value={txTypeFilter}
+                      onChange={e => setTxTypeFilter(e.target.value)}
+                      style={{ fontSize: '0.85rem', background: '#ffffff', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                    >
+                      <option value="ALL">Tất cả các loại</option>
+                      <option value="DEPOSIT">DEPOSIT (Nạp tiền)</option>
+                      <option value="WITHDRAW">WITHDRAW (Rút tiền)</option>
+                      <option value="LOCK">LOCK (Đóng băng Escrow)</option>
+                      <option value="UNLOCK">UNLOCK (Giải ngân)</option>
+                      <option value="REFUND">REFUND (Hoàn tiền)</option>
+                      <option value="COMMISSION">COMMISSION (Phí hệ thống)</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Trạng thái</label>
+                    <select
+                      className="form-input"
+                      value={txStatusFilter}
+                      onChange={e => setTxStatusFilter(e.target.value)}
+                      style={{ fontSize: '0.85rem', background: '#ffffff', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                    >
+                      <option value="ALL">Tất cả trạng thái</option>
+                      <option value="SUCCESS">SUCCESS (Thành công)</option>
+                      <option value="PENDING">PENDING (Chờ duyệt)</option>
+                      <option value="FAILED">FAILED (Từ chối/Thất bại)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Transaction list table */}
+                {(() => {
+                  const filteredTxs = allTransactions.filter(tx => {
+                    const query = txSearch.toLowerCase().trim();
+                    const matchesSearch = !query || 
+                      tx.id.toString().includes(query) ||
+                      tx.walletId.toString().includes(query) ||
+                      (tx.userFullName && tx.userFullName.toLowerCase().includes(query)) ||
+                      (tx.userEmail && tx.userEmail.toLowerCase().includes(query)) ||
+                      (tx.description && tx.description.toLowerCase().includes(query));
+
+                    const matchesType = txTypeFilter === 'ALL' || tx.type === txTypeFilter;
+                    const matchesStatus = txStatusFilter === 'ALL' || tx.status === txStatusFilter;
+
+                    return matchesSearch && matchesType && matchesStatus;
+                  });
+
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        <span>Tìm thấy <strong>{filteredTxs.length}</strong> giao dịch phù hợp.</span>
+                      </div>
+
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', maxHeight: '550px', overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                          <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                            <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                              <th style={{ padding: '0.75rem' }}>Mã GD</th>
+                              <th style={{ padding: '0.75rem' }}>Thành viên</th>
+                              <th style={{ padding: '0.75rem' }}>Mã ví</th>
+                              <th style={{ padding: '0.75rem' }}>Loại GD</th>
+                              <th style={{ padding: '0.75rem' }}>Số tiền</th>
+                              <th style={{ padding: '0.75rem' }}>Trạng thái</th>
+                              <th style={{ padding: '0.75rem' }}>Mô tả chi tiết</th>
+                              <th style={{ padding: '0.75rem' }}>Thời gian tạo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredTxs.length === 0 ? (
+                              <tr><td colSpan="8" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Không tìm thấy giao dịch nào phù hợp bộ lọc.</td></tr>
+                            ) : filteredTxs.map(tx => {
+                              let typeColor = 'var(--text-primary)';
+                              if (tx.type === 'DEPOSIT' || tx.type === 'UNLOCK') typeColor = 'var(--success)';
+                              else if (tx.type === 'WITHDRAW') typeColor = '#f472b6';
+                              else if (tx.type === 'LOCK') typeColor = 'var(--accent-cyan)';
+                              else if (tx.type === 'COMMISSION') typeColor = 'var(--accent-purple)';
+                              else if (tx.type === 'REFUND') typeColor = '#fb923c';
+
+                              let statusBadgeClass = 'badge-success';
+                              if (tx.status === 'PENDING') statusBadgeClass = 'badge-warning';
+                              else if (tx.status === 'FAILED') statusBadgeClass = 'badge-danger';
+
+                              return (
+                                <tr key={tx.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                  <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>#{tx.id}</td>
+                                  <td style={{ padding: '0.75rem' }}>
+                                    <div style={{ fontWeight: 'bold' }}>{tx.userFullName || 'Ẩn danh'}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{tx.userEmail || ''}</div>
+                                  </td>
+                                  <td style={{ padding: '0.75rem' }}>#{tx.walletId}</td>
+                                  <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>
+                                    <span style={{ color: typeColor }}>{tx.type}</span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{tx.amount.toLocaleString('vi-VN')} đ</td>
+                                  <td style={{ padding: '0.75rem' }}>
+                                    <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '0.65rem' }}>{tx.status}</span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', color: 'var(--text-secondary)' }}>{tx.description}</td>
+                                  <td style={{ padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                                    {tx.createdAt ? new Date(tx.createdAt).toLocaleString('vi-VN') : 'N/A'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

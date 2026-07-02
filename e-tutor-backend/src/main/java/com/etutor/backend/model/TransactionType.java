@@ -6,5 +6,6 @@ public enum TransactionType {
     LOCK,
     UNLOCK,
     REFUND,
-    COMMISSION
+    COMMISSION,
+    VIP_PURCHASE
 }

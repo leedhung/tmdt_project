@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
   /* Warm, Cozy & Premium Organic HSL/Hex Color System */
@@ -20,8 +20,8 @@
   --glass-shadow: 0 8px 32px 0 rgba(60, 42, 33, 0.05); /* Extremely soft warm shadow */
 
   /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Outfit', sans-serif;
+  --font-sans: 'Be Vietnam Pro', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Be Vietnam Pro', sans-serif;
 
   box-sizing: border-box;
 }
